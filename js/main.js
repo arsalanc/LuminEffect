@@ -231,6 +231,8 @@
     $("pause").classList.add("hidden");
     $("game").classList.remove("hidden");
     $("boardwrap").classList.remove("zone-active");
+    if (isTouch) $("touchbar").classList.remove("hidden");
+    fitLayout();
     showStageCard(th.name, th.sub);
     state = "playing";
   }
@@ -276,6 +278,7 @@
     $("results").classList.add("hidden");
     $("pause").classList.add("hidden");
     $("mapselect").classList.add("hidden");
+    $("touchbar").classList.add("hidden");
     $("menu").classList.remove("hidden");
     refreshHiscores();
   }
@@ -289,6 +292,13 @@
   }
 
   // ---------- input ----------
+  function doHardDrop() {
+    const gx = (game.cur.x + 1.5) * CELL;
+    const gy = Math.min(BH - 4, (game.ghostY() - HIDDEN_ROWS + 1) * CELL);
+    game.hardDrop(); AudioSys.hardDrop(); fx.addShake(3);
+    fx.burstAt(gx, Math.max(4, gy), Background.theme.accent, 8, 100);
+  }
+
   const keys = {};
   let dasTimer = 0, arrTimer = 0, dasDir = 0;
 
@@ -307,10 +317,7 @@
       } else if (k === "ArrowDown") {
         game.softDropping = true; keys[k] = true; e.preventDefault();
       } else if (k === " ") {
-        const gx = (game.cur.x + 1.5) * CELL;
-        const gy = Math.min(BH - 4, (game.ghostY() - HIDDEN_ROWS + 1) * CELL);
-        game.hardDrop(); AudioSys.hardDrop(); fx.addShake(3);
-        fx.burstAt(gx, Math.max(4, gy), Background.theme.accent, 8, 100);
+        doHardDrop();
         e.preventDefault();
       } else if (k === "ArrowUp" || k.toLowerCase() === "x") {
         if (game.rotate(1)) AudioSys.rotate(); e.preventDefault();
@@ -409,13 +416,15 @@
   function drawPreview(c, canvas, types) {
     c.clearRect(0, 0, canvas.width, canvas.height);
     const th = Background.theme;
+    const horiz = canvas.width > canvas.height; // portrait phones lay the queue out sideways
     types.forEach((t, i) => {
       if (!t) return;
       const m = PIECES[t];
-      const cw = 20;
+      const cw = horiz ? 14 : 20;
       const w = m[0].length * cw, h = m.length * cw;
-      const ox = (canvas.width - w) / 2;
-      const oy = i * 62 + (54 - (t === "I" ? cw * 2 : h)) / 2 + 6;
+      const slotH = (54 - (t === "I" ? cw * 2 : h)) / 2;
+      const ox = horiz ? i * 62 + (62 - w) / 2 : (canvas.width - w) / 2;
+      const oy = horiz ? (canvas.height - h) / 2 : i * 62 + slotH + 6;
       const color = th.pieceColors[PIECE_ORDER.indexOf(t)];
       drawMatrixOn(c, m, t, cw, ox, oy, color);
     });
@@ -599,6 +608,105 @@
     if (state !== "menu" && state !== "mapselect") render();
   }
   requestAnimationFrame(loop);
+
+  // ---------- responsive layout ----------
+  const isTouch = matchMedia("(pointer: coarse)").matches;
+  if (isTouch) document.body.classList.add("touch");
+
+  function fitLayout() {
+    const portrait = isTouch && window.innerHeight > window.innerWidth;
+    document.body.classList.toggle("portrait", portrait);
+    // portrait lays the next-queue out horizontally above the board
+    const wantW = portrait ? 320 : 120, wantH = portrait ? 64 : 330;
+    if (nextCanvas.width !== wantW) { nextCanvas.width = wantW; nextCanvas.height = wantH; }
+    const pa = $("playarea");
+    if (!pa.offsetWidth) return; // hidden (menu screens)
+    const reserve = isTouch ? 96 : 24; // leave room for the touch bar
+    const s = Math.min(1.1,
+      (window.innerWidth - 12) / pa.offsetWidth,
+      (window.innerHeight - reserve) / pa.offsetHeight);
+    pa.style.transform = `scale(${s})`;
+  }
+  window.addEventListener("resize", fitLayout);
+
+  // ---------- touch controls ----------
+  // drag horizontally = move (one column per cell-width), drag down = soft
+  // drop, fast downward flick = hard drop, tap = rotate (left half CCW).
+  if (isTouch) {
+    let tp = null; // active gesture
+    const cellPx = () => boardCanvas.getBoundingClientRect().width / COLS;
+
+    $("game").addEventListener("pointerdown", e => {
+      AudioSys.unlock();
+      if (state !== "playing" && state !== "transition") return;
+      tp = {
+        id: e.pointerId,
+        x0: e.clientX, y0: e.clientY,
+        lx: e.clientX, ly: e.clientY,
+        t0: performance.now(),
+        mode: null,
+        hist: [[performance.now(), e.clientY]],
+      };
+    });
+
+    window.addEventListener("pointermove", e => {
+      if (!tp || e.pointerId !== tp.id || !game) return;
+      const cp = cellPx();
+      const dx = e.clientX - tp.x0, dy = e.clientY - tp.y0;
+      if (!tp.mode) {
+        if (Math.abs(dx) > cp * 0.55 && Math.abs(dx) > Math.abs(dy)) { tp.mode = "h"; tp.lx = tp.x0; }
+        else if (dy > cp * 0.55 && dy > Math.abs(dx)) { tp.mode = "v"; tp.ly = tp.y0; }
+      }
+      if (tp.mode === "h") {
+        while (e.clientX - tp.lx >= cp) { if (game.move(1)) AudioSys.move(); tp.lx += cp; }
+        while (tp.lx - e.clientX >= cp) { if (game.move(-1)) AudioSys.move(); tp.lx -= cp; }
+      } else if (tp.mode === "v") {
+        while (e.clientY - tp.ly >= cp) { game.softStep(); tp.ly += cp; }
+      }
+      tp.hist.push([performance.now(), e.clientY]);
+      if (tp.hist.length > 6) tp.hist.shift();
+    });
+
+    window.addEventListener("pointerup", e => {
+      if (!tp || e.pointerId !== tp.id) { return; }
+      const g = tp; tp = null;
+      if (!game || (state !== "playing" && state !== "transition")) return;
+      const dt = performance.now() - g.t0;
+      const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+      if (g.mode === "v") {
+        // downward flick = hard drop
+        const [ot, oy] = g.hist[0];
+        const vel = (e.clientY - oy) / Math.max(1, performance.now() - ot) * 1000;
+        if (vel > 800 && dy > 24) doHardDrop();
+      } else if (!g.mode && dt < 300 && Math.abs(dx) < 9 && Math.abs(dy) < 9) {
+        // tap = rotate; left half of the board rotates the other way
+        const rect = boardCanvas.getBoundingClientRect();
+        const ccw = e.clientX < rect.left + rect.width / 2;
+        if (game.rotate(ccw ? -1 : 1)) AudioSys.rotate();
+      }
+    });
+    window.addEventListener("pointercancel", () => { tp = null; });
+    $("game").addEventListener("contextmenu", e => e.preventDefault());
+
+    // button bar
+    function tbtn(id, fn) {
+      $(id).addEventListener("pointerdown", e => {
+        e.preventDefault(); e.stopPropagation();
+        AudioSys.unlock();
+        if (state === "playing" || state === "transition") fn();
+      });
+    }
+    tbtn("tb-hold", () => { if (game.holdPiece()) AudioSys.hold(); });
+    tbtn("tb-ccw", () => { if (game.rotate(-1)) AudioSys.rotate(); });
+    tbtn("tb-cw", () => { if (game.rotate(1)) AudioSys.rotate(); });
+    tbtn("tb-zone", () => game.activateZone());
+    tbtn("tb-pause", () => { state = "paused"; $("pause").classList.remove("hidden"); });
+
+    // touch-appropriate hint text
+    $("zonehint").textContent = "ZONE BUTTON";
+    document.querySelector("#menu .help").textContent =
+      "drag to move · tap to rotate · drag down to soft drop · flick down to hard drop";
+  }
 
   // ---------- menu wiring ----------
   document.querySelectorAll("#menu .mbtn[data-mode]").forEach(btn => {

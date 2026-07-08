@@ -47,6 +47,18 @@ Line clears fill the **ZONE** meter. At 30%+ press **SHIFT** (or **ENTER**): tim
 | SHIFT / ENTER | activate zone |
 | P / ESC | pause |
 
+### Touch (phones/tablets)
+
+| Gesture | Action |
+|---|---|
+| drag left/right | move (one column per cell-width) |
+| tap right / left half | rotate CW / CCW |
+| drag down | soft drop |
+| flick down | hard drop |
+| bottom buttons | hold · rotate · zone · pause |
+
+Portrait mode re-arranges the HUD (next queue on top, board center, stats below); the whole playfield auto-scales to any screen.
+
 ## Mechanics
 
 Guideline-style engine: SRS rotation with wall kicks, 7-bag randomizer, ghost piece, hold, 5-piece preview, lock delay with move resets, T-spins (full + mini), back-to-back bonus, combos, perfect clears. All audio is synthesized live with WebAudio — each map plays in its own scale, and every move, rotate, clear and zone event is a note in it.

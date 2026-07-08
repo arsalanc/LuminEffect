@@ -13,6 +13,8 @@ html, body {
   font-family: "Segoe UI", system-ui, sans-serif;
   color: #e8f2ff;
   user-select: none;
+  -webkit-user-select: none;
+  overscroll-behavior: none;
 }
 
 .hidden { display: none !important; }
@@ -34,12 +36,14 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+  touch-action: none; /* the game layer owns all gestures */
 }
 
 #playarea {
   display: flex;
   align-items: stretch;
   gap: 18px;
+  transform-origin: center;
 }
 
 .side {
@@ -323,7 +327,41 @@ html, body {
   100% { opacity: 0; transform: translateY(-16px); }
 }
 
-@media (max-width: 760px) {
-  .side { width: 110px; }
-  #playarea { gap: 8px; }
+/* ---------- touch controls ---------- */
+#touchbar {
+  position: fixed;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  left: 0; right: 0;
+  z-index: 6;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
 }
+.tbtn {
+  width: 58px; height: 58px;
+  border-radius: 50%;
+  border: 1px solid rgba(140, 180, 255, .35);
+  background: rgba(10, 16, 36, .6);
+  color: #e8f2ff;
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 1px;
+  backdrop-filter: blur(6px);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.tbtn:active { background: rgba(40, 60, 110, .8); box-shadow: 0 0 16px var(--glow); }
+#tb-ccw, #tb-cw { font-size: 24px; }
+
+/* ---------- portrait phones: previews on top, board center, info below ---------- */
+body.portrait #playarea { flex-direction: column; align-items: center; gap: 10px; }
+body.portrait .side { flex-direction: row; width: auto; justify-content: center; align-items: stretch; gap: 10px; }
+body.portrait .side.right { order: 1; }
+body.portrait #boardwrap { order: 2; }
+body.portrait .side.left { order: 3; }
+body.portrait .mappanel { display: none; }
+body.portrait #zonemeter { height: 56px; }
+body.portrait #zonehint { display: none; }
+body.portrait .stats { display: flex; flex-direction: row; gap: 12px; align-items: center; }
+body.portrait .stats .stat { margin-bottom: 0; }
+body.portrait .stats .stat span:last-child { font-size: 14px; }

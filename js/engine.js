@@ -199,6 +199,18 @@ class Tetris {
     return y;
   }
 
+  // one manual soft-drop step (touch drag uses this directly)
+  softStep() {
+    if (this.over || !this.cur) return false;
+    if (!this._collides(this.cur.m, this.cur.x, this.cur.y + 1)) {
+      this.cur.y++;
+      this.score += 1;
+      this.lastMoveWasRotation = false;
+      return true;
+    }
+    return false;
+  }
+
   hardDrop() {
     if (this.over || !this.cur) return;
     const dist = this.ghostY() - this.cur.y;

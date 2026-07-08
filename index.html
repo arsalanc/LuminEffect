@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>LUMINEFFECT — a Tetris Effect tribute</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -42,13 +42,22 @@
         <div class="panel-label">NEXT</div>
         <canvas id="next" width="120" height="330"></canvas>
       </div>
-      <div class="panel">
+      <div class="panel mappanel">
         <div class="panel-label">MAP</div>
         <div id="mapname">—</div>
         <div id="modename" class="dim">—</div>
       </div>
     </div>
   </div>
+</div>
+
+<!-- ======== TOUCH CONTROLS (coarse pointers only) ======== -->
+<div id="touchbar" class="hidden">
+  <button class="tbtn" id="tb-hold">HOLD</button>
+  <button class="tbtn" id="tb-ccw">&#10226;</button>
+  <button class="tbtn" id="tb-cw">&#10227;</button>
+  <button class="tbtn" id="tb-zone">ZONE</button>
+  <button class="tbtn" id="tb-pause">&#10073;&#10073;</button>
 </div>
 
 <!-- ======== MENU LAYER ======== -->
