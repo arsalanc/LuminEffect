@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LUMINEFFECT — a Tetris Effect tribute</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bg"></canvas>
+
+<!-- ======== GAME LAYER ======== -->
+<div id="game" class="hidden">
+  <div id="playarea">
+    <div class="side left">
+      <div class="panel">
+        <div class="panel-label">HOLD</div>
+        <canvas id="hold" width="120" height="90"></canvas>
+      </div>
+      <div class="panel zone-panel">
+        <div class="panel-label">ZONE</div>
+        <div id="zonemeter"><div id="zonefill"></div></div>
+        <div id="zonehint">SHIFT / ENTER</div>
+      </div>
+      <div class="panel stats">
+        <div class="stat"><span class="panel-label">SCORE</span><span id="score">0</span></div>
+        <div class="stat"><span class="panel-label">LEVEL</span><span id="level">1</span></div>
+        <div class="stat"><span class="panel-label">LINES</span><span id="lines">0</span></div>
+        <div class="stat"><span class="panel-label" id="goal-label">GOAL</span><span id="goal">–</span></div>
+        <div class="stat"><span class="panel-label">TIME</span><span id="time">0:00</span></div>
+      </div>
+    </div>
+
+    <div id="boardwrap">
+      <canvas id="board"></canvas>
+      <div id="announce"></div>
+      <div id="zoneflash"></div>
+    </div>
+
+    <div class="side right">
+      <div class="panel">
+        <div class="panel-label">NEXT</div>
+        <canvas id="next" width="120" height="330"></canvas>
+      </div>
+      <div class="panel">
+        <div class="panel-label">MAP</div>
+        <div id="mapname">—</div>
+        <div id="modename" class="dim">—</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======== MENU LAYER ======== -->
+<div id="menu" class="overlay">
+  <h1 class="title">LUMIN<span>EFFECT</span></h1>
+  <p class="subtitle">a tetris effect tribute</p>
+  <div class="menu-buttons">
+    <button class="mbtn" data-mode="journey">
+      <span class="mbtn-name">JOURNEY</span>
+      <span class="mbtn-desc">Travel through every map. Reach the goal to move on.</span>
+    </button>
+    <button class="mbtn" data-mode="classic">
+      <span class="mbtn-name">CLASSIC</span>
+      <span class="mbtn-desc">Marathon. Speed rises every 10 lines. Survive to level 15.</span>
+    </button>
+    <button class="mbtn" data-mode="sprint">
+      <span class="mbtn-name">SPRINT</span>
+      <span class="mbtn-desc">40 lines. Race the clock. Beat your best time.</span>
+    </button>
+    <button class="mbtn" data-mode="zen">
+      <span class="mbtn-name">ZEN</span>
+      <span class="mbtn-desc">No game over. No pressure. Pick a map and drift.</span>
+    </button>
+    <button class="mbtn small" id="opensettings">SETTINGS</button>
+  </div>
+  <p class="hiscore" id="hiscore"></p>
+  <p class="help">← → move · ↓ soft drop · SPACE hard drop · Z / X rotate · C hold · SHIFT zone · P pause</p>
+</div>
+
+<!-- ======== MAP SELECT (zen) ======== -->
+<div id="mapselect" class="overlay hidden">
+  <h2 class="overlay-title">CHOOSE A MAP</h2>
+  <div id="maplist"></div>
+  <div class="speedpick">
+    <span class="panel-label">SPEED</span>
+    <div id="speedbtns"></div>
+  </div>
+  <button class="mbtn small" id="mapback">BACK</button>
+</div>
+
+<!-- ======== SETTINGS ======== -->
+<div id="settings" class="overlay hidden">
+  <h2 class="overlay-title">SETTINGS</h2>
+  <div class="setpanel">
+    <div class="setrow">
+      <label>AUTO-REPEAT DELAY (DAS) <b id="das-val"></b></label>
+      <input type="range" id="set-das" min="67" max="250" step="1">
+    </div>
+    <div class="setrow">
+      <label>AUTO-REPEAT RATE (ARR) <b id="arr-val"></b></label>
+      <input type="range" id="set-arr" min="0" max="83" step="1">
+    </div>
+    <div class="setrow">
+      <label>VOLUME <b id="vol-val"></b></label>
+      <input type="range" id="set-vol" min="0" max="100" step="1">
+    </div>
+    <div class="setrow checkrow">
+      <label for="set-ghost">GHOST PIECE</label>
+      <input type="checkbox" id="set-ghost">
+    </div>
+  </div>
+  <button class="mbtn small" id="setreset">RESET DEFAULTS</button>
+  <button class="mbtn small" id="setback">BACK</button>
+</div>
+
+<!-- ======== PAUSE ======== -->
+<div id="pause" class="overlay hidden">
+  <h2 class="overlay-title">PAUSED</h2>
+  <div class="menu-buttons">
+    <button class="mbtn small" id="resume">RESUME</button>
+    <button class="mbtn small" id="quit">MAIN MENU</button>
+  </div>
+</div>
+
+<!-- ======== RESULTS ======== -->
+<div id="results" class="overlay hidden">
+  <h2 class="overlay-title" id="result-title">GAME OVER</h2>
+  <div id="result-stats"></div>
+  <div class="menu-buttons">
+    <button class="mbtn small" id="retry">PLAY AGAIN</button>
+    <button class="mbtn small" id="tomenu">MAIN MENU</button>
+  </div>
+</div>
+
+<!-- ======== STAGE TRANSITION ======== -->
+<div id="stagecard" class="hidden">
+  <div id="stagecard-name"></div>
+  <div id="stagecard-sub"></div>
+</div>
+
+<script src="js/themes.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
