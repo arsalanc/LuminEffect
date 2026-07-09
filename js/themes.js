@@ -80,3 +80,15 @@ const THEMES = [
 function themeById(id) {
   return THEMES.find(t => t.id === id) || THEMES[0];
 }
+
+// Audio-only pseudo-theme for the main menu: slow, soft, nowhere to be.
+const MENU_THEME = {
+  id: "menu",
+  name: "MENU",
+  audio: {
+    root: 110.0, scale: [0, 2, 5, 7, 9], wave: "sine", padCutoff: 650,
+    bpm: 58, kickEvery: 8, hat: false,
+    arp: [0, null, null, 4, null, 2, null, null],
+    padLevel: 0.085, kickLevel: 0.35, arpLevel: 0.75,
+  },
+};

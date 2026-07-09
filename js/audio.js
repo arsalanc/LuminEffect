@@ -32,7 +32,12 @@ const AudioSys = (() => {
   }
 
   function resume() {
-    if (ensure() && ctx.state === "suspended") ctx.resume();
+    // mobile browsers suspend the context on tab switch / screen lock and
+    // can report "interrupted" (iOS) — always try to bring it back
+    if (ensure() && ctx.state !== "running") {
+      const p = ctx.resume();
+      if (p && p.catch) p.catch(() => {});
+    }
   }
 
   function noteFreq(root, scale, degree, octave = 0) {
@@ -58,7 +63,7 @@ const AudioSys = (() => {
 
     padGain = ctx.createGain();
     padGain.gain.value = 0;
-    padGain.gain.linearRampToValueAtTime(0.10, ctx.currentTime + 3);
+    padGain.gain.linearRampToValueAtTime(a.padLevel || 0.10, ctx.currentTime + 3);
     padFilter.connect(padGain);
     padGain.connect(master);
 
@@ -133,14 +138,14 @@ const AudioSys = (() => {
     const a = theme.audio;
     const inBar = s % 8;
     // kick pattern (kickEvery is in 8th-note steps); danger hits harder
-    const kv = 1 + intensity * 0.35;
+    const kv = (1 + intensity * 0.35) * (a.kickLevel || 1);
     if (inBar % a.kickEvery === 0) kick(when, (inBar === 0 ? 0.10 : 0.07) * kv);
     // offbeat hats — themes without hats grow them as danger rises
     if ((a.hat || intensity > 0.55) && inBar % 2 === 1) hat(when, 0.02 + intensity * 0.015);
     // quantized arpeggio, accented on the downbeat; jumps an octave in danger
     const degree = a.arp[inBar];
     if (degree !== null && degree !== undefined) {
-      const vol = (inBar === 0 ? 0.045 : 0.028) * (1 + intensity * 0.6);
+      const vol = (inBar === 0 ? 0.045 : 0.028) * (1 + intensity * 0.6) * (a.arpLevel || 1);
       const octave = intensity > 0.65 ? 1 : 0;
       pluck(noteFreq(a.root * 2, a.scale, degree, octave), vol, beatDur() * 1.6, "sine", when);
     }
@@ -159,7 +164,8 @@ const AudioSys = (() => {
     nextStepTime = ctx.currentTime + 0.1;
     anchorTime = nextStepTime;
     schedTimer = setInterval(() => {
-      if (!enabled || ctx.state !== "running") return;
+      if (!enabled) return;
+      if (ctx.state !== "running") { resume(); return; } // self-heal after suspension
       const stepDur = beatDur() / 2; // 8th notes
       while (nextStepTime < ctx.currentTime + LOOKAHEAD) {
         scheduleStep(step, nextStepTime);
@@ -224,6 +230,9 @@ const AudioSys = (() => {
       startClock();
     },
     stopMusic() { stopPad(); stopClock(); },
+    playingThemeId() {
+      return (theme && schedTimer) ? theme.id : null;
+    },
 
     // Zone dilates time: the whole groove drops to half tempo.
     setZoneTempo(active) {

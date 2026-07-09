@@ -281,6 +281,7 @@
     $("touchbar").classList.add("hidden");
     $("menu").classList.remove("hidden");
     refreshHiscores();
+    ensureMenuMusic(); // old pad fades out as the menu track fades in
   }
 
   function refreshHiscores() {
@@ -608,6 +609,24 @@
     if (state !== "menu" && state !== "mapselect") render();
   }
   requestAnimationFrame(loop);
+
+  // ---------- audio unlock safety net ----------
+  // Browsers only allow audio after a user gesture, and mobile ones re-suspend
+  // the context on tab switch / screen lock. Rather than relying on specific
+  // handlers, treat every gesture (and returning to the tab) as a resume cue.
+  // Menu music can only start once a gesture has unlocked audio, so every
+  // unlock cue also doubles as a "start the menu track if it should be
+  // playing" check.
+  function ensureMenuMusic() {
+    if ((state === "menu" || state === "mapselect") && AudioSys.playingThemeId() !== "menu") {
+      AudioSys.setTheme(MENU_THEME);
+    }
+  }
+  ["pointerdown", "touchend", "keydown", "click"].forEach(ev =>
+    window.addEventListener(ev, () => { AudioSys.unlock(); ensureMenuMusic(); }, { capture: true, passive: true }));
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { AudioSys.unlock(); ensureMenuMusic(); }
+  });
 
   // ---------- responsive layout ----------
   const isTouch = matchMedia("(pointer: coarse)").matches;
