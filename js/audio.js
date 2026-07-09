@@ -11,6 +11,8 @@ const AudioSys = (() => {
   let enabled = true;
   let intensity = 0; // 0..1 danger/level signal from the game
   let volume = 0.7;  // user volume 0..1, applied to master gain
+  let phase = 1;     // journey stage phase: 0 calm intro, 1 full groove, 2 climax
+  let zoneActive = false;
 
   // ---- beat clock ----
   const LOOKAHEAD = 0.15;      // seconds scheduled ahead
@@ -137,22 +139,28 @@ const AudioSys = (() => {
   function scheduleStep(s, when) {
     const a = theme.audio;
     const inBar = s % 8;
-    // kick pattern (kickEvery is in 8th-note steps); danger hits harder
+    // kick pattern (kickEvery is in 8th-note steps); danger hits harder,
+    // calm phase thins to one kick per bar, climax doubles up
     const kv = (1 + intensity * 0.35) * (a.kickLevel || 1);
-    if (inBar % a.kickEvery === 0) kick(when, (inBar === 0 ? 0.10 : 0.07) * kv);
-    // offbeat hats — themes without hats grow them as danger rises
-    if ((a.hat || intensity > 0.55) && inBar % 2 === 1) hat(when, 0.02 + intensity * 0.015);
-    // quantized arpeggio, accented on the downbeat; jumps an octave in danger
+    const kickStep = phase === 2 ? Math.min(2, a.kickEvery) : phase === 0 ? 8 : a.kickEvery;
+    if (inBar % kickStep === 0) kick(when, (inBar === 0 ? 0.10 : 0.07) * kv);
+    // offbeat hats — appear in climax phase or as danger rises
+    if ((a.hat || phase === 2 || intensity > 0.55) && inBar % 2 === 1) hat(when, 0.02 + intensity * 0.015);
+    // quantized arpeggio: calm phase drops the offbeat notes, climax lifts
+    // an octave and leans in harder
     const degree = a.arp[inBar];
-    if (degree !== null && degree !== undefined) {
-      const vol = (inBar === 0 ? 0.045 : 0.028) * (1 + intensity * 0.6) * (a.arpLevel || 1);
-      const octave = intensity > 0.65 ? 1 : 0;
+    const calmSkip = phase === 0 && inBar % 2 === 1;
+    if (degree !== null && degree !== undefined && !calmSkip) {
+      const phVol = phase === 0 ? 0.75 : phase === 2 ? 1.2 : 1;
+      const vol = (inBar === 0 ? 0.045 : 0.028) * (1 + intensity * 0.6) * (a.arpLevel || 1) * phVol;
+      const octave = (intensity > 0.65 || phase === 2) ? 1 : 0;
       pluck(noteFreq(a.root * 2, a.scale, degree, octave), vol, beatDur() * 1.6, "sine", when);
     }
     if (inBar === 0) {
       anchorTime = when;
-      // pad brightens as the stack climbs
-      if (padFilter) padFilter.frequency.setTargetAtTime(a.padCutoff * (1 + intensity * 1.4), when, 0.5);
+      // pad brightens with stack danger and stage climax
+      const bright = Math.min(1, intensity + (phase === 2 ? 0.35 : 0));
+      if (padFilter) padFilter.frequency.setTargetAtTime(a.padCutoff * (1 + bright * 1.4), when, 0.5);
     }
   }
 
@@ -225,9 +233,16 @@ const AudioSys = (() => {
     },
     setTheme(t) {
       theme = t;
+      phase = 1; // every new track starts at neutral groove
       if (!ctx) return;
       startPad();
       startClock();
+    },
+    setPhase(p) { phase = p; },
+    phaseShift() {
+      // rising sweep marking a mid-stage escalation
+      noise(0.7, 0.05, 2500);
+      [0, 2, 4, 7].forEach((d, i) => setTimeout(() => pluck(deg(d, 1), 0.04, 0.7), i * 90));
     },
     stopMusic() { stopPad(); stopClock(); },
     playingThemeId() {
@@ -236,6 +251,7 @@ const AudioSys = (() => {
 
     // Zone dilates time: the whole groove drops to half tempo.
     setZoneTempo(active) {
+      zoneActive = active;
       tempoScale = active ? 0.5 : 1;
       if (ctx && theme && schedTimer) {
         // re-anchor so the visual phase doesn't jump
@@ -263,10 +279,11 @@ const AudioSys = (() => {
     hardDrop() { noise(0.12, 0.10, 900); pluck(deg(0, -1), 0.05, 0.15, "triangle"); },
     lock()   { noise(0.06, 0.05, 1500); },
 
-    clear(lines) {
-      // richer chord for bigger clears
+    clear(lines, combo = 0) {
+      // richer chord for bigger clears; combos climb the scale
+      const shift = Math.min(combo, 6);
       const degrees = [[0], [0, 2], [0, 2, 4], [0, 2, 4, 7]][Math.min(lines, 4) - 1] || [0];
-      degrees.forEach((d, i) => setTimeout(() => pluck(deg(d, 1), 0.06, 0.9), i * 55));
+      degrees.forEach((d, i) => setTimeout(() => pluck(deg(d + shift, 1), 0.06, 0.9), i * 55));
       noise(0.2, 0.06, 2200);
     },
     tspin() { pluck(deg(3, 1), 0.06, 0.5, "triangle"); pluck(deg(3, 2), 0.04, 0.7); },
@@ -276,6 +293,16 @@ const AudioSys = (() => {
     },
     levelUp() {
       [0, 4, 7].forEach((d, i) => setTimeout(() => pluck(deg(d, 1), 0.05, 0.8, "triangle"), i * 100));
+    },
+    // tension builds as zone lines bank: the slowed groove creeps back up
+    // toward full speed the deeper the stack goes
+    setZoneTension(t) {
+      if (zoneActive) tempoScale = 0.5 + Math.min(1, t) * 0.45;
+    },
+    // every banked line rings one note higher than the last
+    zoneLine(count) {
+      pluck(deg(count, 1), 0.05, 0.55);
+      noise(0.07, 0.05, 3200);
     },
     zoneStart() {
       noise(0.8, 0.05, 500);

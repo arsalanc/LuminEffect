@@ -25,6 +25,7 @@
   let intensityVis = 0; // eased 0..1 danger/level intensity
   let flashRows = []; // {y, t} white flash on cleared rows
   let stage = 0;      // journey stage index
+  let stagePhase = 0; // journey mid-stage phase: 0 calm, 1 build, 2 climax
   let transitionTimer = 0;
 
   const JOURNEY_GOALS = [10, 12, 14, 16, 18];
@@ -83,7 +84,7 @@
     const g = new Tetris({
       onLock() { AudioSys.lock(); },
       onClear(info) {
-        AudioSys.clear(info.lines);
+        AudioSys.clear(info.lines, Math.max(0, info.combo)); // combos climb the scale
         if (info.spin) AudioSys.tspin();
         if (info.b2b) AudioSys.b2b();
         if (info.perfect) AudioSys.perfect();
@@ -117,8 +118,9 @@
         announce("THE ZONE", "time stands still");
       },
       onZoneLines(count) {
-        Background.beat(0.5);
-        AudioSys.clear(Math.min(count, 4));
+        Background.beat(0.4 + Math.min(0.6, count * 0.04));
+        AudioSys.zoneLine(count); // pitch climbs with every banked line
+        fx.addShake(1 + Math.min(6, count * 0.4));
       },
       onZoneEnd(res) {
         AudioSys.setZoneTempo(false);
@@ -176,12 +178,25 @@
         if (stage >= THEMES.length) { gameOver(true); return; }
         game.lines = 0;
         game.level = JOURNEY_LEVELS[stage];
+        stagePhase = 0;
         state = "transition";
         transitionTimer = 2.6;
         const th = THEMES[stage];
         showStageCard(th.name, th.sub);
         applyTheme();
+        AudioSys.setPhase(0); // new stage opens calm and builds again
         AudioSys.levelUp();
+      } else {
+        // mid-stage phase shifts: calm → build → climax within one map
+        const prog = game.lines / goal;
+        const newPhase = prog >= 0.75 ? 2 : prog >= 0.4 ? 1 : 0;
+        if (newPhase > stagePhase) {
+          stagePhase = newPhase;
+          game.level = JOURNEY_LEVELS[stage] + stagePhase; // speed climbs with the music
+          AudioSys.setPhase(stagePhase);
+          AudioSys.phaseShift();
+          Background.beat(0.6);
+        }
       }
     } else if (mode === "sprint") {
       if (game.lines >= 40) { gameOver(true); return; }
@@ -217,12 +232,14 @@
       game.level = 3; // brisk fixed gravity — the race is about your hands
     }
     if (m === "journey") game.level = JOURNEY_LEVELS[0];
+    stagePhase = 0;
 
     $("modename").textContent = m.toUpperCase();
     $("goal-label").textContent = m === "journey" ? "GOAL" : m === "classic" ? "NEXT LVL" : m === "sprint" ? "LEFT" : "FLOW";
     const th = (m === "zen" || m === "sprint") ? zenTheme : THEMES[0];
     Background.setTheme(th);
     AudioSys.setTheme(th);
+    AudioSys.setPhase(m === "journey" ? 0 : 1); // journey opens calm
     $("mapname").textContent = th.name;
 
     $("menu").classList.add("hidden");
@@ -442,6 +459,7 @@
     // beat envelope: 1 right on the beat, decaying across it
     const beat = AudioSys.getBeat();
     const be = beat.active ? Math.pow(Math.max(0, 1 - beat.phase), 2.5) : 0;
+    const zt = game && game.zone ? Math.min(1, game.zone.lines / 16) : 0;
     // shake
     const sx = (Math.random() - 0.5) * fx.shake;
     const sy = (Math.random() - 0.5) * fx.shake;
@@ -468,8 +486,9 @@
         if (!v) continue;
         const py = (y - HIDDEN_ROWS) * CELL;
         if (v === ZONE_CELL) {
-          const shimmer = 0.75 + 0.25 * Math.sin(performance.now() / 200 + y);
-          drawCell(bctx, x * CELL, py, CELL, "#dfe8ff", shimmer, 10);
+          // frozen rows shimmer faster and glow hotter as tension builds
+          const shimmer = 0.75 + 0.25 * Math.sin(performance.now() / (200 - zt * 130) + y);
+          drawCell(bctx, x * CELL, py, CELL, "#dfe8ff", shimmer, 10 + zt * 14);
         } else {
           drawCell(bctx, x * CELL, py, CELL, pieceColor(v), 1, zoneVis > 0.3 ? 2 : 0);
         }
@@ -529,7 +548,7 @@
     if (zoneVis > 0.01) {
       const g = bctx.createRadialGradient(BW / 2, BH / 2, BH * 0.3, BW / 2, BH / 2, BH * 0.75);
       g.addColorStop(0, "rgba(120,150,255,0)");
-      g.addColorStop(1, `rgba(120,150,255,${zoneVis * 0.18})`);
+      g.addColorStop(1, `rgba(120,150,255,${zoneVis * (0.18 + zt * 0.3)})`);
       bctx.fillStyle = g;
       bctx.fillRect(0, 0, BW, BH);
     }
@@ -587,6 +606,11 @@
     const zoneTarget = game && game.zone ? 1 : 0;
     zoneVis += (zoneTarget - zoneVis) * Math.min(1, dt * 2.5);
     Background.setZone(zoneVis);
+
+    // zone tension: banked lines wind the frozen world (and its music) back up
+    const zTension = game && game.zone ? Math.min(1, game.zone.lines / 16) : 0;
+    AudioSys.setZoneTension(zTension);
+    Background.setZoneTension(zTension);
 
     // speed-reactive intensity: stack height + level drive music & light
     if (game && state !== "menu" && state !== "mapselect") {

@@ -16,6 +16,7 @@ const Background = (() => {
   let pulse = 0;  // drawn value: event energy + musical beat envelope
   let zoneMode = 0; // 0..1, world turns monochrome-ish in zone
   let intensity = 0; // 0..1 danger/level signal — particles burn brighter
+  let zoneTension = 0; // 0..1 banked zone lines — the frozen world hums louder
 
   function resize() {
     W = canvas.width = window.innerWidth;
@@ -149,7 +150,7 @@ const Background = (() => {
     // breathe with the music: sharp swell on each beat that decays across it
     const beat = (typeof AudioSys !== "undefined") ? AudioSys.getBeat() : { active: false };
     const beatEnv = beat.active ? Math.pow(Math.max(0, 1 - beat.phase), 2.5) * (0.22 + intensity * 0.15) : 0;
-    pulse = Math.min(1, energy + beatEnv + intensity * 0.12);
+    pulse = Math.min(1, energy + beatEnv + intensity * 0.12 + zoneMode * zoneTension * 0.3);
     if (fade < 1) fade = Math.min(1, fade + dt / 1.8);
     drawGradient();
     const kind = theme.particles;
@@ -164,6 +165,7 @@ const Background = (() => {
     frame,
     beat(strength = 0.6) { energy = Math.min(1, energy + strength); },
     setZone(v) { zoneMode = v; },
+    setZoneTension(v) { zoneTension = Math.max(0, Math.min(1, v)); },
     setIntensity(v) { intensity = Math.max(0, Math.min(1, v)); },
     get theme() { return theme; },
   };
