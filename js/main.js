@@ -24,12 +24,11 @@
   let zoneVis = 0;    // eased 0..1 for zone tint
   let intensityVis = 0; // eased 0..1 danger/level intensity
   let flashRows = []; // {y, t} white flash on cleared rows
-  let stage = 0;      // journey stage index
+  let jIndex = 0;     // index into JOURNEY_NODES for the stage being played
   let stagePhase = 0; // journey mid-stage phase: 0 calm, 1 build, 2 climax
   let transitionTimer = 0;
 
-  const JOURNEY_GOALS = [10, 12, 14, 16, 18];
-  const JOURNEY_LEVELS = [1, 3, 5, 7, 9];
+  const curNode = () => JOURNEY_NODES[jIndex];
 
   // ---------- persistence ----------
   const store = {
@@ -154,7 +153,7 @@
 
   // ---------- modes ----------
   function currentTheme() {
-    if (mode === "journey") return THEMES[stage % THEMES.length];
+    if (mode === "journey") return themeById(curNode().theme);
     if (mode === "classic") return THEMES[Math.floor((game.level - 1) / 3) % THEMES.length];
     return zenTheme;
   }
@@ -172,31 +171,17 @@
   function onLinesChanged() {
     if (!game) return;
     if (mode === "journey") {
-      const goal = JOURNEY_GOALS[stage];
-      if (game.lines >= goal) {
-        stage++;
-        if (stage >= THEMES.length) { gameOver(true); return; }
-        game.lines = 0;
-        game.level = JOURNEY_LEVELS[stage];
-        stagePhase = 0;
-        state = "transition";
-        transitionTimer = 2.6;
-        const th = THEMES[stage];
-        showStageCard(th.name, th.sub);
-        applyTheme();
-        AudioSys.setPhase(0); // new stage opens calm and builds again
-        AudioSys.levelUp();
-      } else {
-        // mid-stage phase shifts: calm → build → climax within one map
-        const prog = game.lines / goal;
-        const newPhase = prog >= 0.75 ? 2 : prog >= 0.4 ? 1 : 0;
-        if (newPhase > stagePhase) {
-          stagePhase = newPhase;
-          game.level = JOURNEY_LEVELS[stage] + stagePhase; // speed climbs with the music
-          AudioSys.setPhase(stagePhase);
-          AudioSys.phaseShift();
-          Background.beat(0.6);
-        }
+      const node = curNode();
+      if (game.lines >= node.goal) { gameOver(true); return; } // stage cleared
+      // mid-stage phase shifts: calm → build → climax within one map
+      const prog = game.lines / node.goal;
+      const newPhase = prog >= 0.75 ? 2 : prog >= 0.4 ? 1 : 0;
+      if (newPhase > stagePhase) {
+        stagePhase = newPhase;
+        game.level = node.level + stagePhase; // speed climbs with the music
+        AudioSys.setPhase(stagePhase);
+        AudioSys.phaseShift();
+        Background.beat(0.6);
       }
     } else if (mode === "sprint") {
       if (game.lines >= 40) { gameOver(true); return; }
@@ -212,9 +197,9 @@
     }
   }
 
-  function startGame(m, themeChoice = null) {
+  function startGame(m, themeChoice = null, nodeIndex = 0) {
     mode = m;
-    stage = 0;
+    jIndex = nodeIndex;
     elapsed = 0;
     zoneVis = 0;
     intensityVis = 0;
@@ -231,12 +216,13 @@
       zenTheme = THEMES[Math.floor(Math.random() * THEMES.length)]; // random map each run
       game.level = 3; // brisk fixed gravity — the race is about your hands
     }
-    if (m === "journey") game.level = JOURNEY_LEVELS[0];
+    if (m === "journey") game.level = curNode().level;
     stagePhase = 0;
 
-    $("modename").textContent = m.toUpperCase();
+    $("modename").textContent = m === "journey" ? curNode().name : m.toUpperCase();
     $("goal-label").textContent = m === "journey" ? "GOAL" : m === "classic" ? "NEXT LVL" : m === "sprint" ? "LEFT" : "FLOW";
-    const th = (m === "zen" || m === "sprint") ? zenTheme : THEMES[0];
+    const th = m === "journey" ? themeById(curNode().theme)
+             : (m === "zen" || m === "sprint") ? zenTheme : THEMES[0];
     Background.setTheme(th);
     AudioSys.setTheme(th);
     AudioSys.setPhase(m === "journey" ? 0 : 1); // journey opens calm
@@ -244,13 +230,15 @@
 
     $("menu").classList.add("hidden");
     $("mapselect").classList.add("hidden");
+    $("journeymap").classList.add("hidden");
     $("results").classList.add("hidden");
     $("pause").classList.add("hidden");
     $("game").classList.remove("hidden");
     $("boardwrap").classList.remove("zone-active");
     if (isTouch) $("touchbar").classList.remove("hidden");
     fitLayout();
-    showStageCard(th.name, th.sub);
+    if (m === "journey") showStageCard(curNode().name, curNode().sub);
+    else showStageCard(th.name, th.sub);
     state = "playing";
   }
 
@@ -263,11 +251,38 @@
     let isNewBest = false;
     if (mode === "sprint") {
       if (victory) isNewBest = store.save("sprint", Math.round(elapsed * 100) / 100);
-    } else {
+    } else if (mode !== "journey") {
       isNewBest = store.save(mode, game.score);
     }
+
+    // journey: bank the node, award stars, and offer the next stage
+    let stars = 0, journeyDone = false;
+    if (mode === "journey") {
+      const node = curNode();
+      stars = JourneyProgress.starsFor(node, game.score, !victory);
+      if (victory) {
+        isNewBest = JourneyProgress.record(node, {
+          score: game.score, stars, time: Math.round(elapsed * 100) / 100,
+        });
+        journeyDone = jIndex >= JOURNEY_NODES.length - 1;
+      }
+      $("result-stars").innerHTML = [1, 2, 3]
+        .map(i => `<span class="${i <= stars ? "" : "dimstar"}">★</span>`).join("");
+      $("result-stars").classList.remove("hidden");
+      $("nextstage").classList.toggle("hidden", !victory || journeyDone);
+      $("tojmap").classList.remove("hidden");
+      $("retry").textContent = "RETRY STAGE";
+    } else {
+      $("result-stars").classList.add("hidden");
+      $("nextstage").classList.add("hidden");
+      $("tojmap").classList.add("hidden");
+      $("retry").textContent = "PLAY AGAIN";
+    }
+
     $("result-title").textContent = victory
-      ? (mode === "journey" ? "JOURNEY COMPLETE" : mode === "sprint" ? "SPRINT COMPLETE" : "YOU WIN")
+      ? (mode === "journey"
+          ? (journeyDone ? "JOURNEY COMPLETE" : "STAGE CLEAR")
+          : mode === "sprint" ? "SPRINT COMPLETE" : "YOU WIN")
       : "GAME OVER";
     const rows = [
       ["SCORE", game.score.toLocaleString() + (mode !== "sprint" && isNewBest ? " ★ NEW BEST" : "")],
@@ -284,6 +299,96 @@
     $("results").classList.remove("hidden");
   }
 
+  // ---------- journey map ----------
+  let jSelected = -1;
+
+  function showJourneyMap() {
+    state = "journeymap";
+    jSelected = -1;
+    AudioSys.stopMusic();
+    Background.setIntensity(0);
+    Background.setZone(0);
+    intensityVis = 0;
+    AudioSys.setIntensity(0);
+    $("game").classList.add("hidden");
+    $("results").classList.add("hidden");
+    $("pause").classList.add("hidden");
+    $("menu").classList.add("hidden");
+    $("touchbar").classList.add("hidden");
+    $("journeymap").classList.remove("hidden");
+    renderJourneyMap();
+    ensureMenuMusic();
+  }
+
+  function renderJourneyMap() {
+    const portrait = document.body.classList.contains("portrait");
+    const wrap = $("jmap-nodes");
+    const resume = JourneyProgress.nextIndex();
+    wrap.innerHTML = "";
+
+    // dotted path through every node, with the cleared prefix drawn lit
+    const pts = JOURNEY_NODES.map(n => {
+      const c = mapCoords(n, portrait);
+      return `${c.left},${c.top}`;
+    });
+    $("jmap-lines").setAttribute("viewBox", "0 0 100 100");
+    $("jmap-path").setAttribute("points", pts.join(" "));
+    const doneCount = JourneyProgress.completedCount();
+    $("jmap-path-done").setAttribute("points", doneCount > 0 ? pts.slice(0, doneCount + 1).join(" ") : "");
+
+    JOURNEY_NODES.forEach((node, i) => {
+      const unlocked = JourneyProgress.isUnlocked(i);
+      const done = JourneyProgress.isComplete(node.id);
+      const best = JourneyProgress.best(node.id);
+      const b = document.createElement("button");
+      b.className = "jnode " + (!unlocked ? "locked" : done ? "done" : "open")
+        + (unlocked && i === resume && !done ? " current" : "");
+      const c = mapCoords(node, portrait);
+      b.style.left = c.left + "%";
+      b.style.top = c.top + "%";
+      b.style.borderColor = unlocked ? themeById(node.theme).accent + "cc" : "";
+      b.innerHTML = `<span class="jn-num">${unlocked ? i + 1 : "&#128274;"}</span>`
+        + `<span class="jn-stars">${best ? "★".repeat(best.stars) : ""}</span>`;
+      b.addEventListener("mouseenter", () => describeNode(i));
+      b.addEventListener("click", () => {
+        if (!unlocked) {
+          describeNode(i);
+          return;
+        }
+        // first tap selects (so touch users can read it), second starts
+        if (jSelected === i) { startGame("journey", null, i); return; }
+        jSelected = i;
+        wrap.querySelectorAll(".jnode").forEach((el, k) => el.classList.toggle("sel", k === i));
+        describeNode(i);
+        AudioSys.unlock();
+      });
+      wrap.appendChild(b);
+    });
+
+    const total = JOURNEY_NODES.length;
+    $("jmap-progress").textContent =
+      `${doneCount} / ${total} STAGES   ·   ${JourneyProgress.totalStars()} / ${total * 3} ★`;
+    $("jmap-continue").textContent = doneCount >= total ? "REPLAY FROM START" : "CONTINUE";
+    if (jSelected < 0) describeNode(resume);
+  }
+
+  function describeNode(i) {
+    const node = JOURNEY_NODES[i];
+    const unlocked = JourneyProgress.isUnlocked(i);
+    const best = JourneyProgress.best(node.id);
+    if (!unlocked) {
+      $("jmap-info").innerHTML = `<span class="ji-name">LOCKED</span>`
+        + `<span class="ji-sub">clear stage ${i} to open this path</span>`;
+      return;
+    }
+    const meta = best
+      ? `BEST ${best.score.toLocaleString()} · ${fmtTime(best.time)} · ${"★".repeat(best.stars)}`
+      : `${node.goal} LINES · SPEED ${node.level}`;
+    $("jmap-info").innerHTML = `<span class="ji-name">${node.name}</span>`
+      + `<span class="ji-sub">${node.sub}</span>`
+      + `<span class="ji-meta">${meta}</span>`;
+  }
+
   function toMenu() {
     state = "menu";
     AudioSys.stopMusic();
@@ -295,6 +400,7 @@
     $("results").classList.add("hidden");
     $("pause").classList.add("hidden");
     $("mapselect").classList.add("hidden");
+    $("journeymap").classList.add("hidden");
     $("touchbar").classList.add("hidden");
     $("menu").classList.remove("hidden");
     refreshHiscores();
@@ -303,9 +409,12 @@
 
   function refreshHiscores() {
     const s = store.scores;
-    const parts = ["journey", "classic", "sprint", "zen"]
+    const parts = ["classic", "sprint", "zen"]
       .filter(m => s[m])
       .map(m => m === "sprint" ? `SPRINT ${fmtTime(s[m])}` : `${m.toUpperCase()} ${s[m].toLocaleString()}`);
+    // journey reports progress rather than a single score
+    const done = JourneyProgress.completedCount();
+    if (done > 0) parts.unshift(`JOURNEY ${done}/${JOURNEY_NODES.length}`);
     $("hiscore").textContent = parts.length ? "BEST — " + parts.join("   ·   ") : "";
   }
 
@@ -567,7 +676,7 @@
     $("level").textContent = game.level;
     $("lines").textContent = game.lines;
     $("time").textContent = fmtTime(elapsed);
-    if (mode === "journey") $("goal").textContent = `${game.lines} / ${JOURNEY_GOALS[Math.min(stage, JOURNEY_GOALS.length - 1)]}`;
+    if (mode === "journey") $("goal").textContent = `${game.lines} / ${curNode().goal}`;
     else if (mode === "classic") $("goal").textContent = game.level >= 15 ? "MAX" : `${10 - (game.lines % 10)} lines`;
     else if (mode === "sprint") $("goal").textContent = `${Math.max(0, 40 - game.lines)} lines`;
     else $("goal").textContent = "∞";
@@ -613,7 +722,7 @@
     Background.setZoneTension(zTension);
 
     // speed-reactive intensity: stack height + level drive music & light
-    if (game && state !== "menu" && state !== "mapselect") {
+    if (game && state !== "menu" && state !== "mapselect" && state !== "journeymap") {
       let top = ROWS;
       for (let y = 0; y < ROWS; y++) {
         if (game.grid[y].some(v => v !== 0)) { top = y; break; }
@@ -630,7 +739,7 @@
     flashRows = flashRows.filter(f => f.t < 0.4);
     fx.update(dt);
 
-    if (state !== "menu" && state !== "mapselect") render();
+    if (state !== "menu" && state !== "mapselect" && state !== "journeymap") render();
   }
   requestAnimationFrame(loop);
 
@@ -670,7 +779,11 @@
       (window.innerHeight - reserve) / pa.offsetHeight);
     pa.style.transform = `scale(${s})`;
   }
-  window.addEventListener("resize", fitLayout);
+  window.addEventListener("resize", () => {
+    fitLayout();
+    // the map layout transposes between orientations, so redraw it
+    if (state === "journeymap") renderJourneyMap();
+  });
 
   // ---------- touch controls ----------
   // drag horizontally = move (one column per cell-width), drag down = soft
@@ -760,6 +873,8 @@
         $("menu").classList.add("hidden");
         $("mapselect").classList.remove("hidden");
         state = "mapselect";
+      } else if (m === "journey") {
+        showJourneyMap();
       } else {
         startGame(m);
       }
@@ -828,11 +943,20 @@
   $("setback").addEventListener("click", () => { $("settings").classList.add("hidden"); $("menu").classList.remove("hidden"); });
 
   $("resume").addEventListener("click", () => { state = "playing"; $("pause").classList.add("hidden"); });
-  $("quit").addEventListener("click", toMenu);
-  $("retry").addEventListener("click", () => startGame(mode, mode === "zen" ? zenTheme : null));
+  $("quit").addEventListener("click", () => { mode === "journey" ? showJourneyMap() : toMenu(); });
+  $("retry").addEventListener("click", () => startGame(mode, mode === "zen" ? zenTheme : null, jIndex));
   $("tomenu").addEventListener("click", toMenu);
+  $("tojmap").addEventListener("click", showJourneyMap);
+  $("nextstage").addEventListener("click", () =>
+    startGame("journey", null, Math.min(jIndex + 1, JOURNEY_NODES.length - 1)));
+  $("jmap-back").addEventListener("click", toMenu);
+  $("jmap-continue").addEventListener("click", () => {
+    const done = JourneyProgress.completedCount() >= JOURNEY_NODES.length;
+    startGame("journey", null, done ? 0 : JourneyProgress.nextIndex());
+  });
 
   // menu background: idle drift on the first theme
   Background.setTheme(THEMES[Math.floor(Math.random() * THEMES.length)]);
+  fitLayout(); // establishes body.portrait before any menu is drawn
   refreshHiscores();
 })();

@@ -87,6 +87,21 @@
   <p class="help">← → move · ↓ soft drop · SPACE hard drop · Z / X rotate · C hold · SHIFT zone · P pause</p>
 </div>
 
+<!-- ======== JOURNEY MAP ======== -->
+<div id="journeymap" class="overlay hidden">
+  <h2 class="overlay-title">JOURNEY</h2>
+  <p id="jmap-progress" class="dim"></p>
+  <div id="jmap-wrap">
+    <svg id="jmap-lines" preserveAspectRatio="none"><polyline id="jmap-path"/><polyline id="jmap-path-done"/></svg>
+    <div id="jmap-nodes"></div>
+  </div>
+  <div id="jmap-info"><span class="dim">select a stage</span></div>
+  <div class="menu-buttons">
+    <button class="mbtn small" id="jmap-continue">CONTINUE</button>
+    <button class="mbtn small" id="jmap-back">BACK</button>
+  </div>
+</div>
+
 <!-- ======== MAP SELECT (zen) ======== -->
 <div id="mapselect" class="overlay hidden">
   <h2 class="overlay-title">CHOOSE A MAP</h2>
@@ -135,9 +150,12 @@
 <!-- ======== RESULTS ======== -->
 <div id="results" class="overlay hidden">
   <h2 class="overlay-title" id="result-title">GAME OVER</h2>
+  <div id="result-stars" class="hidden"></div>
   <div id="result-stats"></div>
   <div class="menu-buttons">
+    <button class="mbtn small hidden" id="nextstage">NEXT STAGE</button>
     <button class="mbtn small" id="retry">PLAY AGAIN</button>
+    <button class="mbtn small hidden" id="tojmap">JOURNEY MAP</button>
     <button class="mbtn small" id="tomenu">MAIN MENU</button>
   </div>
 </div>
@@ -149,6 +167,7 @@
 </div>
 
 <script src="js/themes.js"></script>
+<script src="js/journey.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/fx.js"></script>

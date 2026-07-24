@@ -243,6 +243,75 @@ html, body {
 .mapcard .mc-name { font-size: 16px; font-weight: 700; letter-spacing: 3px; }
 .mapcard .mc-sub { font-size: 10px; opacity: .6; letter-spacing: 2px; }
 
+/* ---------- journey map ---------- */
+#jmap-wrap {
+  position: relative;
+  width: min(900px, 92vw);
+  aspect-ratio: 900 / 500;
+}
+body.portrait #jmap-wrap {
+  width: min(440px, 88vw);
+  aspect-ratio: 500 / 900;
+}
+#jmap-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+/* non-scaling-stroke keeps the line even weight despite the stretched viewBox */
+#jmap-path, #jmap-path-done { fill: none; vector-effect: non-scaling-stroke; }
+#jmap-path { stroke: rgba(140, 180, 255, .18); stroke-width: 2; stroke-dasharray: 5 7; }
+#jmap-path-done { stroke: var(--accent); stroke-width: 2.5; opacity: .55; filter: drop-shadow(0 0 6px var(--glow)); }
+#jmap-nodes { position: absolute; inset: 0; }
+
+.jnode {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 62px; height: 62px;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  cursor: pointer;
+  font-family: inherit;
+  color: #e8f2ff;
+  border: 2px solid rgba(140, 180, 255, .3);
+  background: rgba(8, 12, 28, .8);
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+body.portrait .jnode { width: 52px; height: 52px; }
+.jnode .jn-num { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.jnode .jn-stars { font-size: 8px; letter-spacing: 1px; height: 9px; color: var(--accent); }
+
+.jnode.locked { opacity: .38; cursor: not-allowed; }
+.jnode.locked .jn-num { font-size: 17px; opacity: .7; }
+.jnode.open {
+  border-color: var(--accent);
+  box-shadow: 0 0 18px var(--glow);
+}
+.jnode.open:hover, .jnode.done:hover { transform: translate(-50%, -50%) scale(1.14); }
+.jnode.done { border-color: rgba(140, 200, 255, .75); background: rgba(20, 34, 70, .85); }
+/* the stage you'd resume at */
+.jnode.current { animation: jpulse 1.7s ease-in-out infinite; }
+@keyframes jpulse {
+  50% { box-shadow: 0 0 34px var(--glow); border-color: #ffffff; }
+}
+.jnode.sel { transform: translate(-50%, -50%) scale(1.14); border-color: #fff; }
+
+#jmap-info {
+  min-height: 42px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+#jmap-info .ji-name { font-size: 18px; font-weight: 700; letter-spacing: 4px; text-shadow: 0 0 14px var(--glow); }
+#jmap-info .ji-sub { font-size: 12px; opacity: .6; letter-spacing: 2px; }
+#jmap-info .ji-meta { font-size: 11px; opacity: .75; letter-spacing: 2px; }
+#jmap-progress { letter-spacing: 3px; font-size: 12px; margin-top: -8px; }
+
+/* star row on the results screen */
+#result-stars { font-size: 30px; letter-spacing: 10px; color: var(--accent); text-shadow: 0 0 20px var(--glow); min-height: 38px; }
+#result-stars .dimstar { opacity: .2; }
+
 /* ---------- settings ---------- */
 .setpanel {
   display: flex;

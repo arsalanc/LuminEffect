@@ -10,7 +10,7 @@ Open `index.html` in any modern browser. That's it.
 
 ## Modes
 
-- **JOURNEY** — travel through all five maps in sequence. Reach each map's line goal to advance; speed rises with every stage.
+- **JOURNEY** — a constellation of 12 short stages across the five maps, played from a node map. Each stage is 1–2 minutes and takes ~3 to clear, so you can play in bursts; progress and stars persist between sessions. The stage order is an emotional arc — gentle opening, long build, climax at EVENT HORIZON, then a deliberate comedown.
 - **CLASSIC** — marathon. Level up every 10 lines, win at level 15 (150 lines).
 - **SPRINT** — 40 lines, race the clock. Random map each run; your best time is saved.
 - **ZEN** — pick any map *and speed*, no game over, no pressure. Topping out just gently wipes the board.
@@ -66,6 +66,7 @@ Guideline-style engine: SRS rotation with wall kicks, 7-bag randomizer, ghost pi
 ## Structure
 
 - `js/engine.js` — pure game logic (no DOM), unit-testable
+- `js/journey.js` — journey node definitions, map layout, progress/stars store
 - `js/fx.js` — background particle systems + board particle FX
 - `js/audio.js` — procedural WebAudio synth
 - `js/themes.js` — map definitions
