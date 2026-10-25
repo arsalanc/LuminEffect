@@ -1,6 +1,8 @@
 // ============ VISUAL FX ============
 // Full-screen reactive background (one particle system per map) plus
 // board-space particle bursts for line clears, drops and zone cash-outs.
+// Each map's world reacts to big moments in its own way: bubbles swirl,
+// sand gusts outward, auroras flare, rain bends away, stars warp.
 
 // ---------- background ----------
 const Background = (() => {
@@ -20,7 +22,9 @@ const Background = (() => {
   let motes = []; // event sparks flung out of the board toward the camera
   let rings = []; // shockwaves expanding from the board
   let push = 0;   // the ambient field flinches outward on big moments
-  let vignette = null;
+  let vignette = null, dangerGlow = null;
+  let react = 0, rx = 0, ry = 0; // the map's reaction to the last big moment, centred at (rx, ry)
+  let danger = 0; // 0..1 stack height — the edges of the world pulse red
 
   function resize() {
     W = canvas.width = window.innerWidth;
@@ -28,6 +32,9 @@ const Background = (() => {
     vignette = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.6);
     vignette.addColorStop(0, "rgba(0,0,0,0)");
     vignette.addColorStop(1, "rgba(0,0,6,0.55)");
+    dangerGlow = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.hypot(W, H) * 0.55);
+    dangerGlow.addColorStop(0, "rgba(255,30,60,0)");
+    dangerGlow.addColorStop(1, "rgba(255,30,60,0.55)");
   }
   window.addEventListener("resize", resize);
   resize();
@@ -85,12 +92,25 @@ const Background = (() => {
     ctx.fillRect(0, 0, W, H);
   }
 
+  // how strongly the current reaction reaches a point: strongest near its
+  // origin, with the unit direction pointing away from it
+  function reach(x, y) {
+    const dx = x - rx, dy = y - ry, d = Math.hypot(dx, dy) || 1;
+    return { k: react * Math.exp(-d / (Math.min(W, H) * 0.5)), ux: dx / d, uy: dy / d };
+  }
+
   const drawers = {
     ocean(p) {
-      // rising bubbles
-      const x = p.x * W + Math.sin(t * p.v + p.ph) * 30;
-      const y = ((p.y - t * 0.02 * p.v) % 1 + 1) % 1 * H;
-      const r = p.s * 5 * (1 + pulse * 0.6);
+      // rising bubbles; a big moment swirls them around it like a vortex
+      let x = p.x * W + Math.sin(t * p.v + p.ph) * 30;
+      let y = ((p.y - t * 0.02 * p.v) % 1 + 1) % 1 * H;
+      const { k } = reach(x, y);
+      if (k > 0.01) {
+        const a = k * 1.6, c = Math.cos(a), sn = Math.sin(a), dx = x - rx, dy = y - ry;
+        x = rx + dx * c - dy * sn;
+        y = ry + dx * sn + dy * c - k * 40;
+      }
+      const r = p.s * 5 * (1 + pulse * 0.6 + k);
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(150,220,255,${0.12 + p.s * 0.15 + pulse * 0.2})`;
@@ -98,43 +118,51 @@ const Background = (() => {
       ctx.stroke();
     },
     sand(p) {
-      const x = ((p.x + t * 0.03 * p.v) % 1) * W;
-      const y = p.y * H + Math.sin(t * 0.7 * p.v + p.ph) * 40;
-      ctx.fillStyle = `rgba(255,205,130,${0.10 + p.s * 0.18 + pulse * 0.15})`;
-      ctx.fillRect(x, y, p.s * 3 + 1, p.s * 2 + 1);
+      // drifting grains; a big moment is a gust blowing them outward
+      let x = ((p.x + t * 0.03 * p.v) % 1) * W;
+      let y = p.y * H + Math.sin(t * 0.7 * p.v + p.ph) * 40;
+      const { k, ux, uy } = reach(x, y);
+      x += ux * k * 170; y += uy * k * 70;
+      ctx.fillStyle = `rgba(255,205,130,${0.10 + p.s * 0.18 + pulse * 0.15 + k * 0.3})`;
+      ctx.fillRect(x, y, p.s * 3 + 1 + k * 26 * Math.abs(ux), p.s * 2 + 1);
     },
     aurora(p, i) {
       if (i < 5) { // 5 ribbons
         ctx.beginPath();
         const yBase = H * (0.15 + i * 0.12);
+        // a big moment makes the ribbons flare: taller, wider, brighter
+        const amp = 1 + react * 0.9;
         for (let x = 0; x <= W; x += 24) {
-          const y = yBase + Math.sin(x * 0.004 + t * (0.3 + i * 0.07) + p.ph) * 60
-                  + Math.sin(x * 0.001 + t * 0.15) * 90;
+          const y = yBase + (Math.sin(x * 0.004 + t * (0.3 + i * 0.07) + p.ph) * 60
+                  + Math.sin(x * 0.001 + t * 0.15) * 90) * amp;
           x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
         }
-        const alpha = 0.05 + 0.04 * Math.sin(t * 0.5 + i) + pulse * 0.12;
+        const alpha = 0.05 + 0.04 * Math.sin(t * 0.5 + i) + pulse * 0.12 + react * 0.16;
         ctx.strokeStyle = i % 2 ? `rgba(120,255,190,${alpha})` : `rgba(140,180,255,${alpha})`;
-        ctx.lineWidth = 26 - i * 3;
+        ctx.lineWidth = 26 - i * 3 + react * 14;
         ctx.stroke();
       } else { // stars
         const tw = 0.4 + 0.6 * Math.abs(Math.sin(t * p.v * 2 + p.ph));
-        ctx.fillStyle = `rgba(220,240,255,${0.25 * tw * p.s})`;
+        ctx.fillStyle = `rgba(220,240,255,${Math.min(1, 0.25 * tw * p.s + react * 0.3)})`;
         ctx.fillRect(p.x * W, p.y * H * 0.7, 1.6, 1.6);
       }
     },
     rain(p) {
+      // falling streaks; a big moment bends the rain away from it
       const speed = 0.5 + p.v * 0.8;
       const y = ((p.y + t * speed * 0.25) % 1) * H;
       const x = p.x * W;
       const len = 14 + p.v * 22;
-      const grad = ctx.createLinearGradient(x, y, x, y + len);
+      const { k, ux } = reach(x, y + len / 2);
+      const x0 = x + ux * k * 30, x1 = x + ux * k * 95;
+      const grad = ctx.createLinearGradient(x0, y, x1, y + len);
       grad.addColorStop(0, "rgba(255,110,220,0)");
-      grad.addColorStop(1, `rgba(160,220,255,${0.15 + p.s * 0.2 + pulse * 0.2})`);
+      grad.addColorStop(1, `rgba(160,220,255,${Math.min(1, 0.15 + p.s * 0.2 + pulse * 0.2 + k * 0.4)})`);
       ctx.strokeStyle = grad;
       ctx.lineWidth = 1.3;
       ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x, y + len);
+      ctx.moveTo(x0, y);
+      ctx.lineTo(x1, y + len);
       ctx.stroke();
     },
     stars(p) {
@@ -142,7 +170,18 @@ const Background = (() => {
       const x = ((p.x + drift) % 1) * W;
       const tw = 0.3 + 0.7 * Math.abs(Math.sin(t * p.v * 1.5 + p.ph));
       const r = p.s * 1.8 * (1 + pulse);
-      ctx.fillStyle = `rgba(230,225,255,${(0.15 + 0.4 * tw * p.s)})`;
+      const alpha = 0.15 + 0.4 * tw * p.s;
+      const { k, ux, uy } = reach(x, p.y * H);
+      if (k > 0.02) {
+        // a big moment warps space: stars stretch into hyperspace streaks
+        const sx = x + ux * k * 30, sy = p.y * H + uy * k * 30, len = k * 140 * p.s;
+        ctx.strokeStyle = `rgba(230,225,255,${Math.min(1, alpha + k * 0.4)})`;
+        ctx.lineWidth = r;
+        ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + ux * len, sy + uy * len); ctx.stroke();
+        return;
+      }
+      ctx.fillStyle = `rgba(230,225,255,${alpha})`;
       ctx.beginPath();
       ctx.arc(x, p.y * H, r, 0, Math.PI * 2);
       ctx.fill();
@@ -170,6 +209,8 @@ const Background = (() => {
     if (motes.length > 600) motes.splice(0, motes.length - 600);
     rings.push({ x: ox, y: oy, t: 0, life: 0.9 + strength * 0.5, k: Math.min(1, strength), rgb: cols[0] });
     push = Math.min(1, push + strength * 0.5);
+    react = Math.min(1.4, react + strength * 0.8);
+    rx = ox; ry = oy;
   }
 
   function drawMotes(dt) {
@@ -179,9 +220,23 @@ const Background = (() => {
       m.x += m.vx * dt; m.y += m.vy * dt; m.z += m.vz * dt;
     }
     motes = motes.filter(m => m.t < m.life && m.z > 0.06);
+    const kind = theme.particles;
     for (const m of motes) {
       const k = 1 - m.t / m.life;
       const sx = m.ox + (m.x / m.z) * f, sy = m.oy + (m.y / m.z) * f;
+      // sparks take the map's own material: bubbles, grains, or light
+      if (kind === "ocean") {
+        ctx.strokeStyle = css(m.rgb, Math.min(1, k * 1.4) * 0.8);
+        ctx.lineWidth = Math.min(3, 0.6 / m.z);
+        ctx.beginPath(); ctx.arc(sx, sy, Math.min(26, m.s * 2.4 / m.z), 0, Math.PI * 2); ctx.stroke();
+        continue;
+      }
+      if (kind === "sand") {
+        const sz = Math.min(9, m.s * 1.6 / m.z);
+        ctx.fillStyle = css(m.rgb, Math.min(1, k * 1.4) * 0.85);
+        ctx.fillRect(sx - sz / 2, sy - sz / 2, sz, sz);
+        continue;
+      }
       // streak back toward where it was a moment ago: motion blur for free
       const z2 = m.z - m.vz * 0.05;
       const tx = m.ox + ((m.x - m.vx * 0.05) / z2) * f, ty = m.oy + ((m.y - m.vy * 0.05) / z2) * f;
@@ -207,6 +262,7 @@ const Background = (() => {
     t += dt * timeScale;
     energy = Math.max(0, energy - dt * 1.4);
     push = Math.max(0, push - dt * 1.6);
+    react = Math.max(0, react - dt * Math.max(0.12, timeScale) * 0.9); // frozen in the zone too
     // breathe with the music: sharp swell on each beat that decays across it
     const beat = (typeof AudioSys !== "undefined") ? AudioSys.getBeat() : { active: false };
     const beatEnv = beat.active ? Math.pow(Math.max(0, 1 - beat.phase), 2.5) * (0.22 + intensity * 0.15) : 0;
@@ -225,6 +281,17 @@ const Background = (() => {
     drawMotes(dt * Math.max(0.12, timeScale));
     ctx.globalCompositeOperation = "source-over";
     if (vignette) { ctx.fillStyle = vignette; ctx.fillRect(0, 0, W, H); }
+    // danger: the edges of the world throb red in time with the heartbeat
+    // (every other beat at first, every beat near the top)
+    if (danger > 0.3 && dangerGlow) {
+      const d = (danger - 0.3) / 0.7;
+      const onHeart = beat.active && (danger > 0.7 || beat.n % 2 === 0);
+      const throb = onHeart ? Math.pow(Math.max(0, 1 - beat.phase), 4) : 0;
+      ctx.globalAlpha = Math.min(1, d * (0.3 + throb * 0.7));
+      ctx.fillStyle = dangerGlow;
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
   }
 
   parts = makeParticles(theme);
@@ -237,6 +304,7 @@ const Background = (() => {
     setZone(v) { zoneMode = v; },
     setZoneTension(v) { zoneTension = Math.max(0, Math.min(1, v)); },
     setIntensity(v) { intensity = Math.max(0, Math.min(1, v)); },
+    setDanger(v) { danger = Math.max(0, Math.min(1, v)); },
     get theme() { return theme; },
   };
 })();

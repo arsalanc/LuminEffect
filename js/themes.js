@@ -21,6 +21,12 @@ const THEMES = [
       // 8th step (2 = octave up); room size in seconds and its wet level
       prog: [0, 1, -1, 2], bass: [1, null, null, null, null, null, 1, null], bassLen: 5,
       reverb: 4.2, wet: 0.45, delay: 0.25, pump: 0.25,
+      // sung lead: 2-bar phrases of [8th step 0-15, scale degree over the
+      // chord root, length in 8ths], and the vowel the voice sings on
+      melody: { vowel: "a", phrases: [
+        [[0, 5, 4], [4, 4, 2], [6, 3, 2], [8, 2, 6], [14, 3, 2]],
+        [[0, 4, 3], [3, 5, 1], [4, 7, 4], [8, 6, 2], [10, 5, 6]],
+      ] },
     },
   },
   {
@@ -37,6 +43,10 @@ const THEMES = [
       arp: [0, 2, 4, 2, 3, 2, 4, 2],
       prog: [0, -1, 1, -2], bass: [1, null, null, 1, null, null, 1, null], bassLen: 2,
       reverb: 2.6, wet: 0.32, delay: 0.3, pump: 0.3,
+      melody: { vowel: "o", phrases: [
+        [[0, 5, 2], [2, 6, 1], [3, 7, 3], [6, 6, 2], [8, 5, 2], [10, 3, 2], [12, 4, 4]],
+        [[0, 7, 2], [2, 8, 2], [4, 7, 1], [5, 6, 3], [8, 5, 3], [11, 4, 1], [12, 5, 4]],
+      ] },
     },
   },
   {
@@ -53,6 +63,10 @@ const THEMES = [
       arp: [0, null, 3, null, 2, null, 4, null],
       prog: [0, -1, 2, 3], bass: [1, null, null, null, null, null, null, null], bassLen: 7,
       reverb: 5, wet: 0.5, delay: 0.35, pump: 0.2,
+      melody: { vowel: "u", level: 1.6, phrases: [
+        [[0, 5, 6], [6, 4, 2], [8, 6, 8]],
+        [[0, 7, 4], [4, 6, 4], [8, 5, 4], [12, 4, 4]],
+      ] },
     },
   },
   {
@@ -69,6 +83,10 @@ const THEMES = [
       arp: [0, 2, 4, 5, 3, 2, 4, 2],
       prog: [0, -1, 1, 2], bass: [1, null, 1, 2, 1, null, 1, 2], bassLen: 0.9,
       reverb: 2.2, wet: 0.28, delay: 0.4, pump: 0.55, // synthwave sidechain pump
+      melody: { vowel: "e", level: 0.65, phrases: [
+        [[0, 5, 1], [1, 5, 1], [3, 7, 2], [6, 6, 1], [7, 5, 3], [10, 4, 1], [11, 5, 1], [13, 3, 3]],
+        [[0, 7, 2], [3, 8, 1], [4, 7, 2], [6, 5, 2], [8, 6, 3], [11, 5, 1], [12, 4, 4]],
+      ] },
     },
   },
   {
@@ -85,6 +103,10 @@ const THEMES = [
       arp: [0, null, null, 2, null, null, 4, null],
       prog: [0, 2, -1, 3], chordBars: 2, bass: [1, null, null, null, null, null, null, null], bassLen: 8,
       reverb: 6, wet: 0.55, delay: 0.35, pump: 0.2,
+      melody: { vowel: "u", level: 1.6, phrases: [
+        [[0, 5, 8], [8, 7, 4], [12, 6, 4]],
+        [[0, 8, 6], [6, 7, 2], [8, 5, 8]],
+      ] },
     },
   },
 ];

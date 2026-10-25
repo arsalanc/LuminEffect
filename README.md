@@ -17,7 +17,7 @@ Open `index.html` in any modern browser. That's it.
 
 ## Settings
 
-DAS (auto-repeat delay), ARR (auto-repeat rate, 0 = instant), volume, and ghost piece toggle — all persisted in localStorage.
+DAS (auto-repeat delay), ARR (auto-repeat rate, 0 = instant), volume, ghost piece, snap-clear-sounds-to-beat, and phone vibration — all persisted in localStorage.
 
 ## Maps
 
@@ -68,8 +68,12 @@ Guideline-style engine: SRS rotation with wall kicks, 7-bag randomizer, ghost pi
 - **Harmony that moves** — each map cycles through its own chord progression. The pad glides between chords, a bass line follows the roots once the groove kicks in, and every player sound (move, rotate, clear, zone) is pitched from the chord playing at that moment, so your input always lands in tune with the track.
 - **Space** — a synthesized reverb sized per map (tight for NEON CITY, cavernous for EVENT HORIZON) plus a tempo-synced ping-pong delay, glued by a bus compressor. The kick pumps the pad like a sidechain.
 - **Stereo placement** — move, rotate, drop and lock sounds pan with the active piece's column.
+- **A singing lead** — each map has its own melody, sung by a synthesized formant "voice" on its own vowel. In Journey it arrives with the build (a phrase, then space to answer) and sings every phrase with a harmony at the climax.
+- **Clears land on the beat** — line clear, T-spin, perfect clear and zone sounds snap to the groove's grid (never more than ~130 ms late); the visuals stay instant. Can be turned off in settings.
+- **Danger** — when the stack climbs past about 11 rows a heartbeat creeps in under the music (every beat near the top), the pad drains away, and the edges of the world and the rim of the well throb red with it.
+- **Haptics** — on phones, hard drops, clears, the zone and game over vibrate (where the browser supports it).
 - **The Zone sounds underwater** — the music sinks behind a lowpass and the room swells. Banking lines slowly lifts the filter, and cashing out snaps everything back into focus with a sub-bass impact. Your own sounds stay crisp the whole time.
-- **The world reacts** — line clears fling sparks in the cleared rows' colors out of the well and past the camera, with a shockwave ring and the background field flinching outward. Sparks freeze in mid-air during the Zone and fly when it ends. Hard drops leave light streaks, freshly locked pieces glint, and background particles blend additively under a soft vignette.
+- **The world reacts, in its own way** — bubbles swirl into a vortex in THE DEEP, sand gusts outward in GOLDEN DUNES, auroras flare, NEON CITY's rain bends away from the board, and EVENT HORIZON's stars stretch into hyperspace streaks. Line clears also fling sparks (bubbles, grains or light, depending on the map) in the cleared rows' colors out of the well and past the camera, with a shockwave ring and the background field flinching outward. Sparks freeze in mid-air during the Zone and fly when it ends. Hard drops leave light streaks, freshly locked pieces glint, and background particles blend additively under a soft vignette.
 
 ## Structure
 

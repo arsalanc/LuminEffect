@@ -13,12 +13,15 @@
 // Harmony moves through a per-map chord progression; the pad glides between
 // chords and every player sound (move, rotate, clear...) is pitched from the
 // chord that is sounding right now, so your play is part of the music.
+// Clear sounds snap to the groove's grid, a formant "voice" sings each map's
+// melody as the stage builds, and a heartbeat creeps in when the stack is
+// close to the top.
 
 const AudioSys = (() => {
   let ctx = null;
   let master, comp, sfxIn, reverb, revIn, revOut, dlyIn, dlyL, dlyR;
   let musicDry, musicRev, musicDly; // zone lowpasses in front of each music path
-  let padGain, padDuck, padFilter, padOscs = [], padVoices = [];
+  let padGain, padDuck, padDanger, padFilter, padOscs = [], padVoices = [];
   let irKey = null;
   let theme = null;
   let enabled = true;
@@ -28,6 +31,8 @@ const AudioSys = (() => {
   let zoneActive = false;
   let zoneCut = 0;   // last zone lowpass target, to avoid re-automating every frame
   let pan = 0;       // stereo position of the active piece, -1..1
+  let danger = 0;    // 0..1 how close the stack is to topping out
+  let quantize = true; // snap clear sounds to the beat grid
 
   // ---- beat clock ----
   const LOOKAHEAD = 0.15;      // seconds scheduled ahead
@@ -198,8 +203,11 @@ const AudioSys = (() => {
     padGain.gain.value = 0;
     padGain.gain.linearRampToValueAtTime(a.padLevel || 0.10, ctx.currentTime + 3);
     padDuck = ctx.createGain(); // sidechain: the kick pushes the pad down
+    padDanger = ctx.createGain(); // the pad drains away as danger rises
+    padDanger.gain.value = 1 - danger * 0.6;
     padFilter.connect(padGain);
-    padGain.connect(padDuck);
+    padGain.connect(padDanger);
+    padDanger.connect(padDuck);
     route(padDuck, { music: true, rev: 0.7 });
 
     padVoices = padFreqs(schedChord).map((f, i) => {
@@ -302,6 +310,62 @@ const AudioSys = (() => {
     o.stop(when + dur + 0.4); sub.stop(when + dur + 0.4);
   }
 
+  // lub-dub: two low, dry thumps
+  function heartbeat(when, vol) {
+    [[0, 1, 62], [0.17, 0.65, 54]].forEach(([off, amp, f0]) => {
+      const t = when + off;
+      const o = ctx.createOscillator();
+      o.frequency.setValueAtTime(f0, t);
+      o.frequency.exponentialRampToValueAtTime(f0 * 0.6, t + 0.12);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(vol * amp, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      o.connect(g);
+      route(g, { music: true, rev: 0.05 });
+      o.start(t); o.stop(t + 0.25);
+    });
+  }
+
+  // Formant "voice": two detuned saws through vowel resonances, with a
+  // slow swell and delayed vibrato, so the lead reads as a distant singer
+  // rather than a synth.
+  const VOWELS = {
+    a: [[800, 1], [1150, 0.5], [2900, 0.18]],
+    o: [[450, 1], [800, 0.45], [2830, 0.1]],
+    u: [[325, 1], [700, 0.3], [2530, 0.06]],
+    e: [[400, 1], [1700, 0.45], [2600, 0.2]],
+  };
+  function vox(freq, when, dur, vol, vowel = "a", opts = {}) {
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, when);
+    out.gain.linearRampToValueAtTime(vol, when + Math.min(0.12, dur * 0.4));
+    out.gain.setTargetAtTime(vol * 0.8, when + 0.15, 0.4);
+    out.gain.setTargetAtTime(0.0001, when + dur, 0.12);
+    route(out, opts);
+    const vib = ctx.createOscillator();
+    vib.frequency.value = 5.2;
+    const depth = ctx.createGain();
+    depth.gain.setValueAtTime(0, when);
+    depth.gain.linearRampToValueAtTime(freq * 0.014, when + Math.min(0.5, dur * 0.6));
+    vib.connect(depth);
+    const end = when + dur + 0.8;
+    [1, 1.004].forEach(detune => {
+      const o = ctx.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.value = freq * detune;
+      depth.connect(o.frequency);
+      (VOWELS[vowel] || VOWELS.a).forEach(([ff, amp]) => {
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass"; bp.frequency.value = ff; bp.Q.value = ff / 90;
+        const g = ctx.createGain(); g.gain.value = amp;
+        o.connect(bp); bp.connect(g); g.connect(out);
+      });
+      o.start(when); o.stop(end);
+    });
+    vib.start(when); vib.stop(end);
+  }
+
   function scheduleStep(s, when) {
     const a = theme.audio;
     const inBar = s % 8;
@@ -319,7 +383,10 @@ const AudioSys = (() => {
       // pad brightens with stack danger and stage climax
       const bright = Math.min(1, intensity + (phase === 2 ? 0.35 : 0));
       if (padFilter) padFilter.frequency.setTargetAtTime(a.padCutoff * (1 + bright * 1.4), when, 0.5);
+      if (padDanger) padDanger.gain.setTargetAtTime(1 - danger * 0.6, when, 0.8);
     }
+    // heartbeat: every other beat once the stack climbs, every beat near the top
+    if (danger > 0.3 && inBar % (danger > 0.7 ? 2 : 4) === 0) heartbeat(when, 0.05 + danger * 0.07);
     // kick pattern (kickEvery is in 8th-note steps); danger hits harder,
     // calm phase thins to one kick per bar, climax doubles up
     const kv = (1 + intensity * 0.35) * (a.kickLevel || 1);
@@ -345,6 +412,28 @@ const AudioSys = (() => {
       const octave = (intensity > 0.65 || phase === 2) ? 1 : 0;
       pluck(noteFreq(a.root * 2, a.scale, degree + schedChord, octave), vol, beatDur() * 1.6, "sine", when,
         { music: true, pan: (inBar % 4 - 1.5) * 0.25, rev: 0.45, dly: a.delay || 0.3 });
+    }
+    // melody: 2-bar phrases sung over the chords. The build sings every
+    // other phrase (call, then space to answer); the climax sings every
+    // phrase with a harmony a step above.
+    const mel = a.melody;
+    if (mel && phase >= 1) {
+      const ph = Math.floor(bar / 2);
+      if (phase === 2 || ph % 2 === 1) {
+        const at = (bar % 2) * 8 + inBar;
+        const phrase = mel.phrases[ph % mel.phrases.length];
+        for (const [st, d, len] of phrase) {
+          if (st !== at) continue;
+          const dur = stepDur * len;
+          const v = 0.11 * (mel.level || 1) * (1 + intensity * 0.3);
+          vox(noteFreq(a.root * 2, a.scale, schedChord + d, 0), when, dur, v, mel.vowel,
+            { music: true, pan: -0.15, rev: 0.75, dly: 0.5 });
+          if (phase === 2) {
+            vox(noteFreq(a.root * 2, a.scale, schedChord + d + 2, 0), when, dur, v * 0.55, mel.vowel,
+              { music: true, pan: 0.35, rev: 0.8, dly: 0.4 });
+          }
+        }
+      }
     }
     // climax: glassy bells sparkle high above the groove
     if (phase === 2 && (inBar === 3 || inBar === 6)) {
@@ -410,6 +499,17 @@ const AudioSys = (() => {
     });
   }
 
+  // Next point on the groove's grid (16ths, or 32nds at slow tempos so the
+  // wait never exceeds ~130ms): big moments land in time with the music.
+  function onGrid() {
+    const now = ctx.currentTime;
+    if (!quantize || !schedTimer || !theme) return now;
+    let g = beatDur() / 4;
+    while (g > 0.13) g /= 2;
+    const k = Math.ceil((now - anchorTime) / g - 1e-6);
+    return Math.max(now, anchorTime + k * g);
+  }
+
   function noiseBuf(dur) {
     const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -418,9 +518,9 @@ const AudioSys = (() => {
     return buf;
   }
 
-  function noise(dur = 0.15, vol = 0.08, cutoff = 1200, opts = { rev: 0.2 }) {
+  function noise(dur = 0.15, vol = 0.08, cutoff = 1200, opts = { rev: 0.2 }, when = null) {
     if (!ctx || !enabled || ctx.state !== "running") return;
-    const t = ctx.currentTime;
+    const t = when != null ? when : ctx.currentTime;
     const src = ctx.createBufferSource();
     src.buffer = noiseBuf(dur);
     const f = ctx.createBiquadFilter();
@@ -456,9 +556,9 @@ const AudioSys = (() => {
   }
 
   // deep sub impact for the big moments
-  function boom(vol = 0.16) {
+  function boom(vol = 0.16, when = null) {
     if (!ctx || !enabled || ctx.state !== "running") return;
-    const t = ctx.currentTime;
+    const t = when != null ? when : ctx.currentTime;
     const o = ctx.createOscillator();
     o.frequency.setValueAtTime(90, t);
     o.frequency.exponentialRampToValueAtTime(30, t + 0.9);
@@ -483,6 +583,8 @@ const AudioSys = (() => {
     setEnabled(v) { enabled = v; },
     setIntensity(v) { intensity = Math.max(0, Math.min(1, v)); },
     setPan(v) { pan = Math.max(-1, Math.min(1, v)); },
+    setDanger(v) { danger = Math.max(0, Math.min(1, v)); },
+    setQuantize(v) { quantize = !!v; },
     setVolume(v) {
       volume = Math.max(0, Math.min(1, v));
       if (ctx && master) master.gain.setTargetAtTime(volume * 0.75, ctx.currentTime, 0.05);
@@ -540,12 +642,13 @@ const AudioSys = (() => {
     // Beat phase for the visuals: phase 0 = right on the beat.
     getBeat() {
       if (!ctx || !theme || !schedTimer || ctx.state !== "running") {
-        return { phase: 1, active: false, bpm: 0 };
+        return { phase: 1, n: 0, active: false, bpm: 0 };
       }
       const bd = beatDur();
-      let phase = ((ctx.currentTime - anchorTime) / bd) % 1;
-      if (phase < 0) phase += 1;
-      return { phase, active: true, bpm: theme.audio.bpm * tempoScale };
+      const pos = (ctx.currentTime - anchorTime) / bd;
+      const phase = pos - Math.floor(pos);
+      const n = ((Math.floor(pos) % 4) + 4) % 4; // beat within the bar
+      return { phase, n, active: true, bpm: theme.audio.bpm * tempoScale };
     },
 
     move()   { pluck(deg(0, 1), 0.018, 0.08, "sine", null, here(0.2)); },
@@ -559,22 +662,28 @@ const AudioSys = (() => {
     lock()   { noise(0.06, 0.05, 1500, here(0.15)); },
 
     clear(lines, combo = 0) {
+      if (!ctx || ctx.state !== "running") return;
       // richer chord for bigger clears; combos climb the scale
+      const t = onGrid();
       const shift = Math.min(combo, 6);
       const degrees = [[0], [0, 2], [0, 2, 4], [0, 2, 4, 7]][Math.min(lines, 4) - 1] || [0];
-      degrees.forEach((d, i) => setTimeout(() =>
-        pluck(deg(d + shift, 1), 0.06, 0.9, "sine", null, { pan: (i - (degrees.length - 1) / 2) * 0.35, rev: 0.6, dly: 0.45 }), i * 55));
-      noise(0.2, 0.06, 2200, { rev: 0.4 });
-      if (lines >= 4) { bell(deg(7 + shift, 1), 0.035, 1.6); boom(0.1); }
+      degrees.forEach((d, i) =>
+        pluck(deg(d + shift, 1), 0.06, 0.9, "sine", t + i * 0.055, { pan: (i - (degrees.length - 1) / 2) * 0.35, rev: 0.6, dly: 0.45 }));
+      noise(0.2, 0.06, 2200, { rev: 0.4 }, t);
+      if (lines >= 4) { bell(deg(7 + shift, 1), 0.035, 1.6, t); boom(0.1, t); }
     },
     tspin() {
-      pluck(deg(3, 1), 0.06, 0.5, "triangle", null, here(0.5, 0.4));
-      bell(deg(3, 2), 0.03, 1.0, null, { pan: pan * 0.6, rev: 0.6, dly: 0.5 });
+      if (!ctx || ctx.state !== "running") return;
+      const t = onGrid();
+      pluck(deg(3, 1), 0.06, 0.5, "triangle", t, here(0.5, 0.4));
+      bell(deg(3, 2), 0.03, 1.0, t, { pan: pan * 0.6, rev: 0.6, dly: 0.5 });
     },
-    b2b()   { bell(deg(4, 2), 0.035, 1.2); },
+    b2b() { if (ctx && ctx.state === "running") bell(deg(4, 2), 0.035, 1.2, onGrid()); },
     perfect() {
-      [0, 2, 4, 7, 9].forEach((d, i) => setTimeout(() => bell(deg(d, 1), 0.05, 1.8, null, { pan: -0.6 + i * 0.3, rev: 0.7, dly: 0.6 }), i * 90));
-      boom(0.12);
+      if (!ctx || ctx.state !== "running") return;
+      const t = onGrid();
+      [0, 2, 4, 7, 9].forEach((d, i) => bell(deg(d, 1), 0.05, 1.8, t + i * 0.09, { pan: -0.6 + i * 0.3, rev: 0.7, dly: 0.6 }));
+      boom(0.12, t);
     },
     levelUp() {
       sweep(0.9, 400, 4000, 0.035);
@@ -589,8 +698,10 @@ const AudioSys = (() => {
     },
     // every banked line rings one bell higher than the last
     zoneLine(count) {
-      bell(deg(count, 1), 0.05, 1.1, null, { pan: ((count % 5) - 2) * 0.25, rev: 0.7, dly: 0.4 });
-      noise(0.07, 0.05, 3200, { rev: 0.3 });
+      if (!ctx || ctx.state !== "running") return;
+      const t = onGrid();
+      bell(deg(count, 1), 0.05, 1.1, t, { pan: ((count % 5) - 2) * 0.25, rev: 0.7, dly: 0.4 });
+      noise(0.07, 0.05, 3200, { rev: 0.3 }, t);
     },
     zoneStart() {
       sweep(0.9, 5000, 220, 0.06, { rev: 0.8 });
@@ -598,13 +709,15 @@ const AudioSys = (() => {
       [4, 2, 0].forEach((d, i) => setTimeout(() => pluck(deg(d, 0), 0.06, 1.2, "sine", null, { rev: 0.8, dly: 0.5 }), i * 140));
     },
     zoneEnd(lines) {
+      if (!ctx || ctx.state !== "running") return;
+      const t = onGrid();
       const n = Math.min(10, Math.max(3, lines));
       for (let i = 0; i < n; i++) {
-        setTimeout(() => pluck(deg(i, 1), 0.05, 0.9, "sine", null, { pan: (i / (n - 1)) * 1.2 - 0.6, rev: 0.6, dly: 0.5 }), i * 70);
+        pluck(deg(i, 1), 0.05, 0.9, "sine", t + i * 0.07, { pan: (i / (n - 1)) * 1.2 - 0.6, rev: 0.6, dly: 0.5 });
       }
-      noise(0.5, 0.09, 3000, { rev: 0.6 });
-      boom(0.12 + Math.min(0.06, lines * 0.004));
-      if (lines >= 8) bell(deg(n, 2), 0.04, 2.2);
+      noise(0.5, 0.09, 3000, { rev: 0.6 }, t);
+      boom(0.12 + Math.min(0.06, lines * 0.004), t);
+      if (lines >= 8) bell(deg(n, 2), 0.04, 2.2, t);
     },
     gameOver() {
       [4, 3, 1, 0].forEach((d, i) => setTimeout(() => pluck(deg(d, 0), 0.06, 1.5, "sine", null, { rev: 0.8, dly: 0.4 }), i * 220));
