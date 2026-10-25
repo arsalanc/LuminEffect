@@ -44,7 +44,7 @@
   };
 
   // ---------- settings ----------
-  const SETTINGS_DEFAULTS = { das: 150, arr: 33, volume: 70, ghost: true, quantize: true, vibrate: true, zenSpeed: 1 };
+  const SETTINGS_DEFAULTS = { das: 150, arr: 33, volume: 70, ghost: true, quantize: true, vibrate: true, fx: "auto", zenSpeed: 1 };
   const settings = Object.assign(
     {}, SETTINGS_DEFAULTS,
     (() => { try { return JSON.parse(localStorage.getItem("lumineffect-settings") || "{}"); } catch (e) { return {}; } })()
@@ -554,23 +554,45 @@
     c.closePath();
   }
 
-  function drawCell(c, x, y, size, color, alpha = 1, glow = 0) {
-    c.globalAlpha = alpha;
-    if (glow > 0) { c.shadowColor = color; c.shadowBlur = glow; }
-    const pad = 1.5;
-    roundRect(c, x + pad, y + pad, size - pad * 2, size - pad * 2, 4);
-    const g = c.createLinearGradient(x, y, x, y + size);
-    g.addColorStop(0, color);
-    g.addColorStop(1, shade(color, -0.35));
-    c.fillStyle = g;
+  // Cells are pre-rendered once per (color, size, glow) into small sprites:
+  // gradients and shadowBlur are far too slow to redo for 200 cells a frame.
+  const spriteCache = new Map();
+  function cellSprite(color, size, glow) {
+    const g = glow > 0 ? Math.min(24, Math.max(3, Math.round(glow / 3) * 3)) : 0;
+    const key = `${color}|${size}|${g}`;
+    let spr = spriteCache.get(key);
+    if (spr) return spr;
+    if (spriteCache.size > 400) spriteCache.clear();
+    const pad = g ? g + 2 : 0;
+    const full = size + pad * 2;
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = Math.ceil(full * DPR);
+    const c = cv.getContext("2d");
+    c.scale(DPR, DPR);
+    if (g) { c.shadowColor = color; c.shadowBlur = g; }
+    const inset = 1.5, x = pad, y = pad;
+    roundRect(c, x + inset, y + inset, size - inset * 2, size - inset * 2, 4);
+    const grad = c.createLinearGradient(x, y, x, y + size);
+    grad.addColorStop(0, color);
+    grad.addColorStop(1, shade(color, -0.35));
+    c.fillStyle = grad;
     c.fill();
+    c.shadowBlur = 0;
     // inner highlight
-    c.globalAlpha = alpha * 0.35;
-    roundRect(c, x + pad + 2, y + pad + 2, size - pad * 2 - 4, (size - pad * 2) * 0.35, 3);
+    c.globalAlpha = 0.35;
+    roundRect(c, x + inset + 2, y + inset + 2, size - inset * 2 - 4, (size - inset * 2) * 0.35, 3);
     c.fillStyle = "#ffffff";
     c.fill();
+    spr = { cv, pad, full };
+    spriteCache.set(key, spr);
+    return spr;
+  }
+
+  function drawCell(c, x, y, size, color, alpha = 1, glow = 0) {
+    const spr = cellSprite(color, size, glow);
+    c.globalAlpha = alpha;
+    c.drawImage(spr.cv, x - spr.pad, y - spr.pad, spr.full, spr.full);
     c.globalAlpha = 1;
-    c.shadowBlur = 0;
   }
 
   function shade(hex, k) {
@@ -594,9 +616,14 @@
         if (m[y][x]) drawCell(c, ox + x * cw, oy + y * cw, cw, color, 1, 6);
   }
 
+  const previewKeys = new Map();
   function drawPreview(c, canvas, types) {
-    c.clearRect(0, 0, canvas.width, canvas.height);
     const th = Background.theme;
+    // the queue only changes on spawn/hold, so skip identical redraws
+    const key = `${types.join()}|${th.id}|${canvas.width}`;
+    if (previewKeys.get(canvas) === key) return;
+    previewKeys.set(canvas, key);
+    c.clearRect(0, 0, canvas.width, canvas.height);
     const horiz = canvas.width > canvas.height; // portrait phones lay the queue out sideways
     types.forEach((t, i) => {
       if (!t) return;
@@ -718,33 +745,47 @@
 
     bctx.restore();
 
-    // outer halo of the well swells on the beat
-    $("boardwrap").style.setProperty("--beatpx", (be * 22).toFixed(1) + "px");
-    // near the top, the well's rim throbs red with the heartbeat
+    // outer halo of the well swells on the beat; near the top, its rim
+    // throbs red with the heartbeat. Both are opacity-only layers, so the
+    // browser can animate them without repainting the well.
     const d = (dangerVis - 0.3) / 0.7;
-    $("boardwrap").style.borderColor = d > 0 && !game.zone
-      ? `rgba(255,80,100,${(0.25 + d * 0.5 * (0.4 + be * 0.6)).toFixed(3)})` : "";
+    setStyle("beathalo", "opacity", (be * 0.9).toFixed(2));
+    setStyle("dangerrim", "opacity", d > 0 && !game.zone ? (0.35 + d * 0.65 * (0.4 + be * 0.6)).toFixed(2) : "0");
 
     // side panels
     drawPreview(hctx, holdCanvas, [game.hold]);
     drawPreview(nctx, nextCanvas, game.queue.slice(0, 5));
 
-    // HUD
-    $("score").textContent = game.score.toLocaleString();
-    $("level").textContent = game.level;
-    $("lines").textContent = game.lines;
-    $("time").textContent = fmtTime(elapsed);
-    if (mode === "journey") $("goal").textContent = `${game.lines} / ${curNode().goal}`;
-    else if (mode === "classic") $("goal").textContent = game.level >= 15 ? "MAX" : `${10 - (game.lines % 10)} lines`;
-    else if (mode === "sprint") $("goal").textContent = `${Math.max(0, 40 - game.lines)} lines`;
-    else $("goal").textContent = "∞";
+    // HUD — DOM writes only when a value actually changes
+    setText("score", game.score.toLocaleString());
+    setText("level", game.level);
+    setText("lines", game.lines);
+    setText("time", fmtTime(elapsed));
+    if (mode === "journey") setText("goal", `${game.lines} / ${curNode().goal}`);
+    else if (mode === "classic") setText("goal", game.level >= 15 ? "MAX" : `${10 - (game.lines % 10)} lines`);
+    else if (mode === "sprint") setText("goal", `${Math.max(0, 40 - game.lines)} lines`);
+    else setText("goal", "∞");
 
-    // zone meter
-    const fill = game.zone
-      ? (game.zone.time / game.zone.total) * 100
-      : game.meter * 100;
-    $("zonefill").style.height = fill + "%";
-    $("zonemeter").classList.toggle("ready", game.zoneReady());
+    // zone meter (a transform, not a height, so it never triggers layout)
+    const fill = game.zone ? game.zone.time / game.zone.total : game.meter;
+    setStyle("zonefill", "transform", `scaleY(${Math.max(0, Math.min(1, fill)).toFixed(3)})`);
+    const ready = game.zoneReady();
+    if (ready !== lastZoneReady) { lastZoneReady = ready; $("zonemeter").classList.toggle("ready", ready); }
+  }
+
+  const domCache = {};
+  let lastZoneReady = null;
+  function setText(id, v) {
+    v = String(v);
+    if (domCache[id] === v) return;
+    domCache[id] = v;
+    $(id).textContent = v;
+  }
+  function setStyle(id, prop, v) {
+    const k = id + "." + prop;
+    if (domCache[k] === v) return;
+    domCache[k] = v;
+    $(id).style[prop] = v;
   }
 
   function stackTop() {
@@ -756,6 +797,7 @@
   let last = performance.now();
   function loop(now) {
     requestAnimationFrame(loop);
+    watchFrames((now - last) / 1000);
     let dt = Math.min((now - last) / 1000, 0.05);
     last = now;
 
@@ -832,6 +874,45 @@
   // ---------- responsive layout ----------
   const isTouch = matchMedia("(pointer: coarse)").matches;
   if (isTouch) document.body.classList.add("touch");
+
+  // ---------- effects quality ----------
+  // 2 = full (frosted-glass blur), 1 = balanced (no backdrop blur — by far
+  // the costliest effect, since the animated background makes the browser
+  // re-blur every panel every frame), 0 = low (also a half-res background
+  // and fewer particles). AUTO starts high on desktop, balanced on touch,
+  // and steps down when frames run long during play; the tier it settles on
+  // is remembered for next time.
+  const FX_LEVELS = { high: 2, balanced: 1, low: 0 };
+  const FX_AUTO_KEY = "lumineffect-fxauto";
+  const autoDefault = isTouch ? 1 : 2;
+  let autoLevel = (() => {
+    try { const v = localStorage.getItem(FX_AUTO_KEY); return v === null ? autoDefault : Math.min(autoDefault, +v); } catch (e) { return autoDefault; }
+  })();
+  let slowTime = 0;
+
+  function fxLevel() { return settings.fx === "auto" ? autoLevel : FX_LEVELS[settings.fx] ?? 2; }
+
+  function applyQuality() {
+    const q = fxLevel();
+    document.body.classList.toggle("fx-noblur", q < 2);
+    Background.setQuality(q);
+    const name = ["low", "balanced", "high"][q];
+    $("fx-val").textContent = settings.fx === "auto" ? `auto · ${name}` : name;
+  }
+
+  function watchFrames(raw) {
+    if (settings.fx !== "auto" || autoLevel === 0) return;
+    if (state !== "playing" && state !== "transition") { slowTime = 0; return; }
+    if (raw > 0.25) return; // a tab switch or one-off hitch, not sustained load
+    // count time spent in frames slower than ~45fps; good frames pay it back
+    slowTime = raw > 1 / 45 ? slowTime + raw : Math.max(0, slowTime - raw * 0.5);
+    if (slowTime > 2) {
+      slowTime = 0;
+      autoLevel--;
+      try { localStorage.setItem(FX_AUTO_KEY, autoLevel); } catch (e) {}
+      applyQuality();
+    }
+  }
 
   function fitLayout() {
     const portrait = isTouch && window.innerHeight > window.innerWidth;
@@ -1008,6 +1089,30 @@
   bindCheck("set-ghost", "ghost");
   bindCheck("set-quantize", "quantize", v => AudioSys.setQuantize(v));
   bindCheck("set-vibrate", "vibrate", v => { if (v) buzz(30); });
+  // effects tier chips; picking AUTO again re-measures from the top
+  const fxBtns = $("fxbtns");
+  ["auto", "high", "balanced", "low"].forEach(v => {
+    const b = document.createElement("button");
+    b.className = "chip";
+    b.dataset.fx = v;
+    b.textContent = v.toUpperCase();
+    b.addEventListener("click", () => {
+      settings.fx = v;
+      if (v === "auto") {
+        autoLevel = autoDefault;
+        try { localStorage.removeItem(FX_AUTO_KEY); } catch (e) {}
+      }
+      saveSettings();
+      syncFx();
+    });
+    fxBtns.appendChild(b);
+  });
+  function syncFx() {
+    fxBtns.querySelectorAll(".chip").forEach(c => c.classList.toggle("sel", c.dataset.fx === settings.fx));
+    applyQuality();
+  }
+  settingSyncs.push(syncFx);
+  syncFx();
   // keep the zen speed chips in sync too
   settingSyncs.push(() => {
     speedBtns.querySelectorAll(".chip").forEach(c => c.classList.toggle("sel", +c.textContent === settings.zenSpeed));

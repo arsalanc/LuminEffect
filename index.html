@@ -7,7 +7,10 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="bgfill"><div id="bgglow"></div></div>
 <canvas id="bg"></canvas>
+<div id="vignette"></div>
+<div id="dangerglow"></div>
 
 <!-- ======== GAME LAYER ======== -->
 <div id="game" class="hidden">
@@ -32,6 +35,8 @@
     </div>
 
     <div id="boardwrap">
+      <div id="beathalo"></div>
+      <div id="dangerrim"></div>
       <canvas id="board"></canvas>
       <div id="announce"></div>
       <div id="zoneflash"></div>
@@ -128,6 +133,10 @@
     <div class="setrow">
       <label>VOLUME <b id="vol-val"></b></label>
       <input type="range" id="set-vol" min="0" max="100" step="1">
+    </div>
+    <div class="setrow">
+      <label>EFFECTS <b id="fx-val"></b></label>
+      <div id="fxbtns" class="chiprow"></div>
     </div>
     <div class="setrow checkrow">
       <label for="set-ghost">GHOST PIECE</label>

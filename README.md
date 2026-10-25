@@ -17,7 +17,14 @@ Open `index.html` in any modern browser. That's it.
 
 ## Settings
 
-DAS (auto-repeat delay), ARR (auto-repeat rate, 0 = instant), volume, ghost piece, snap-clear-sounds-to-beat, and phone vibration — all persisted in localStorage.
+DAS (auto-repeat delay), ARR (auto-repeat rate, 0 = instant), volume, effects quality, ghost piece, snap-clear-sounds-to-beat, and phone vibration — all persisted in localStorage.
+
+### Effects quality
+
+- **HIGH** — everything, including frosted-glass blur on the board and panels.
+- **BALANCED** — no backdrop blur (panels go more opaque instead). The blur is by far the most expensive effect: the background animates every frame, so the browser has to re-blur every panel every frame.
+- **LOW** — also renders the background at half resolution with fewer particles and sparks.
+- **AUTO** (default) — starts at HIGH on desktop and BALANCED on touch devices, steps down a tier after ~2 seconds of sub-45fps play, and remembers where it settled. Picking AUTO again re-measures from the top.
 
 ## Maps
 
@@ -83,3 +90,10 @@ Guideline-style engine: SRS rotation with wall kicks, 7-bag randomizer, ghost pi
 - `js/audio.js` — procedural WebAudio synth
 - `js/themes.js` — map definitions
 - `js/main.js` — game loop, input, rendering, UI, modes
+
+### Rendering notes
+
+- Board cells are pre-rendered once per color/size/glow into sprite canvases and blitted with `drawImage`; no per-cell gradients or `shadowBlur` in the frame loop.
+- The background sky, vignette, danger glow, beat halo and danger rim are CSS layers whose *opacity* is driven per frame (compositor-only); the background canvas itself is transparent and only draws particles, batched into a few paths per frame.
+- HUD text and styles are written only when they change; hold/next previews redraw only when the queue changes.
+- Noise buffers are generated once and reused; reverb impulses are built in small chunks across timer ticks and cached per room size.

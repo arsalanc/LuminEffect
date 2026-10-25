@@ -22,19 +22,20 @@ const Background = (() => {
   let motes = []; // event sparks flung out of the board toward the camera
   let rings = []; // shockwaves expanding from the board
   let push = 0;   // the ambient field flinches outward on big moments
-  let vignette = null, dangerGlow = null;
+  const dangerEl = document.getElementById("dangerglow");
+  const fillEl = document.getElementById("bgfill"), glowEl = document.getElementById("bgglow");
+  let fillKey = "", glowOp = "";
+  let dangerOp = "0";
+  let res = 1;       // backing-store scale; the low-effects tier renders at half res
+  let lite = false;  // low-effects tier: fewer particles and sparks
   let react = 0, rx = 0, ry = 0; // the map's reaction to the last big moment, centred at (rx, ry)
   let danger = 0; // 0..1 stack height — the edges of the world pulse red
 
   function resize() {
-    W = canvas.width = window.innerWidth;
-    H = canvas.height = window.innerHeight;
-    vignette = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.6);
-    vignette.addColorStop(0, "rgba(0,0,0,0)");
-    vignette.addColorStop(1, "rgba(0,0,6,0.55)");
-    dangerGlow = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.hypot(W, H) * 0.55);
-    dangerGlow.addColorStop(0, "rgba(255,30,60,0)");
-    dangerGlow.addColorStop(1, "rgba(255,30,60,0.55)");
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.round(W * res);
+    canvas.height = Math.round(H * res);
   }
   window.addEventListener("resize", resize);
   resize();
@@ -44,7 +45,7 @@ const Background = (() => {
   function makeParticles(th) {
     const list = [];
     const kind = th.particles;
-    const count = kind === "aurora" ? 26 : kind === "rain" ? 140 : 90;
+    const count = Math.round((kind === "aurora" ? 26 : kind === "rain" ? 140 : 90) * (lite ? 0.55 : 1));
     for (let i = 0; i < count; i++) {
       list.push({
         x: rand(0, 1), y: rand(0, 1),
@@ -84,12 +85,20 @@ const Background = (() => {
       top = mix(top, [10, 10, 24], z);
       bot = mix(bot, [30, 34, 60], z);
     }
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    const boost = 1 + pulse * 0.35;
-    g.addColorStop(0, css(top.map(v => Math.min(255, v * boost))));
-    g.addColorStop(1, css(bot.map(v => Math.min(255, v * boost))));
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
+    // The sky is two CSS layers behind the (transparent) canvas: the base
+    // gradient, repainted only when its colors change (theme crossfade,
+    // zone), and a 1.35x-brighter copy whose opacity is the beat pulse —
+    // a compositor-only change instead of a full-screen fill every frame.
+    const key = css(top) + css(bot);
+    if (key !== fillKey) {
+      fillKey = key;
+      fillEl.style.background = `linear-gradient(${css(top)}, ${css(bot)})`;
+      const lift = c => css(c.map(v => Math.min(255, Math.round(v * 1.35))));
+      glowEl.style.background = `linear-gradient(${lift(top)}, ${lift(bot)})`;
+    }
+    const op = (Math.round(pulse * 50) / 50).toFixed(2);
+    if (op !== glowOp) { glowOp = op; glowEl.style.opacity = op; }
+    ctx.clearRect(0, 0, W, H);
   }
 
   // how strongly the current reaction reaches a point: strongest near its
@@ -148,22 +157,17 @@ const Background = (() => {
       }
     },
     rain(p) {
-      // falling streaks; a big moment bends the rain away from it
+      // falling streaks; a big moment bends the rain away from it. Drops are
+      // collected into a few alpha buckets and stroked together (a faint
+      // pink tail plus a bright blue head) instead of one gradient each.
       const speed = 0.5 + p.v * 0.8;
       const y = ((p.y + t * speed * 0.25) % 1) * H;
       const x = p.x * W;
       const len = 14 + p.v * 22;
       const { k, ux } = reach(x, y + len / 2);
       const x0 = x + ux * k * 30, x1 = x + ux * k * 95;
-      const grad = ctx.createLinearGradient(x0, y, x1, y + len);
-      grad.addColorStop(0, "rgba(255,110,220,0)");
-      grad.addColorStop(1, `rgba(160,220,255,${Math.min(1, 0.15 + p.s * 0.2 + pulse * 0.2 + k * 0.4)})`);
-      ctx.strokeStyle = grad;
-      ctx.lineWidth = 1.3;
-      ctx.beginPath();
-      ctx.moveTo(x0, y);
-      ctx.lineTo(x1, y + len);
-      ctx.stroke();
+      const a = Math.min(1, 0.15 + p.s * 0.2 + pulse * 0.2 + k * 0.4);
+      rainBuckets[Math.min(3, Math.floor(a * 4))].push(x0, y, x1, y + len);
     },
     stars(p) {
       const drift = t * 0.004 * p.v;
@@ -188,13 +192,36 @@ const Background = (() => {
     },
   };
 
+  const rainBuckets = [[], [], [], []];
+  function flushRain() {
+    ctx.lineWidth = 1.3;
+    ctx.lineCap = "butt";
+    rainBuckets.forEach((b, i) => {
+      if (!b.length) return;
+      const a = (i + 0.5) / 4;
+      ctx.strokeStyle = `rgba(255,110,220,${(a * 0.25).toFixed(3)})`;
+      ctx.beginPath();
+      for (let j = 0; j < b.length; j += 4) { ctx.moveTo(b[j], b[j + 1]); ctx.lineTo(b[j + 2], b[j + 3]); }
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(160,220,255,${a.toFixed(3)})`;
+      ctx.beginPath();
+      for (let j = 0; j < b.length; j += 4) {
+        // bright head: the lower 45% of the streak
+        ctx.moveTo(b[j] + (b[j + 2] - b[j]) * 0.55, b[j + 1] + (b[j + 3] - b[j + 1]) * 0.55);
+        ctx.lineTo(b[j + 2], b[j + 3]);
+      }
+      ctx.stroke();
+      b.length = 0;
+    });
+  }
+
   // Sparks live in a little 3D space: they start near the board and fly
   // past the camera, so perspective spreads them across the whole screen.
   function burst(strength = 0.5, colors = null, origin = null) {
     const valid = (colors || []).filter(c => /^#[0-9a-f]{6}$/i.test(c));
     const cols = (valid.length ? valid : [theme.accent]).map(hexRGB);
     const ox = origin ? origin.x : W / 2, oy = origin ? origin.y : H / 2;
-    const n = Math.min(170, Math.round(18 + strength * 80));
+    const n = Math.round(Math.min(130, 16 + strength * 64) * (lite ? 0.45 : 1));
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = rand(0.04, 0.32) * (0.6 + strength * 0.5);
@@ -206,8 +233,10 @@ const Background = (() => {
         rgb: cols[i % cols.length],
       });
     }
-    if (motes.length > 600) motes.splice(0, motes.length - 600);
+    const cap = lite ? 150 : 320;
+    if (motes.length > cap) motes.splice(0, motes.length - cap);
     rings.push({ x: ox, y: oy, t: 0, life: 0.9 + strength * 0.5, k: Math.min(1, strength), rgb: cols[0] });
+    if (rings.length > 3) rings.shift(); // overlapping shockwaves read as one anyway
     push = Math.min(1, push + strength * 0.5);
     react = Math.min(1.4, react + strength * 0.8);
     rx = ox; ry = oy;
@@ -221,29 +250,48 @@ const Background = (() => {
     }
     motes = motes.filter(m => m.t < m.life && m.z > 0.06);
     const kind = theme.particles;
+    // Group sparks by color, alpha step and line width, then draw each group
+    // as one path: hundreds of strokes become a few dozen.
+    const groups = new Map();
     for (const m of motes) {
       const k = 1 - m.t / m.life;
       const sx = m.ox + (m.x / m.z) * f, sy = m.oy + (m.y / m.z) * f;
+      // already past the edge of the screen: nothing left to draw
+      if (sx < -40 || sx > W + 40 || sy < -40 || sy > H + 40) { m.t = m.life; continue; }
+      const a = Math.ceil(Math.min(1, k * 1.4) * 5) / 5;
       // sparks take the map's own material: bubbles, grains, or light
+      const w = kind === "ocean" ? Math.min(3, Math.ceil(0.6 / m.z))
+              : kind === "sand" ? 0 : Math.min(7, Math.ceil(m.s / m.z));
+      const key = `${m.rgb}|${a}|${w}`;
+      let g = groups.get(key);
+      if (!g) { g = { rgb: m.rgb, a, w, pts: [] }; groups.set(key, g); }
+      if (kind === "ocean") g.pts.push(sx, sy, Math.min(26, m.s * 2.4 / m.z));
+      else if (kind === "sand") g.pts.push(sx, sy, Math.min(9, m.s * 1.6 / m.z));
+      else {
+        // streak back toward where it was a moment ago: motion blur for free
+        // (capped: right by the camera the projection stretches to hundreds
+        // of px of fat line, which costs a lot and reads as noise)
+        const z2 = m.z - m.vz * 0.05;
+        let tx = m.ox + ((m.x - m.vx * 0.05) / z2) * f - sx, ty = m.oy + ((m.y - m.vy * 0.05) / z2) * f - sy;
+        const len = Math.hypot(tx, ty);
+        if (len > 70) { tx *= 70 / len; ty *= 70 / len; }
+        g.pts.push(sx + tx, sy + ty, sx, sy);
+      }
+    }
+    ctx.lineCap = "round";
+    for (const g of groups.values()) {
+      const p = g.pts;
+      ctx.beginPath();
       if (kind === "ocean") {
-        ctx.strokeStyle = css(m.rgb, Math.min(1, k * 1.4) * 0.8);
-        ctx.lineWidth = Math.min(3, 0.6 / m.z);
-        ctx.beginPath(); ctx.arc(sx, sy, Math.min(26, m.s * 2.4 / m.z), 0, Math.PI * 2); ctx.stroke();
-        continue;
+        for (let i = 0; i < p.length; i += 3) { ctx.moveTo(p[i] + p[i + 2], p[i + 1]); ctx.arc(p[i], p[i + 1], p[i + 2], 0, Math.PI * 2); }
+        ctx.strokeStyle = css(g.rgb, g.a * 0.8); ctx.lineWidth = g.w; ctx.stroke();
+      } else if (kind === "sand") {
+        for (let i = 0; i < p.length; i += 3) ctx.rect(p[i] - p[i + 2] / 2, p[i + 1] - p[i + 2] / 2, p[i + 2], p[i + 2]);
+        ctx.fillStyle = css(g.rgb, g.a * 0.85); ctx.fill();
+      } else {
+        for (let i = 0; i < p.length; i += 4) { ctx.moveTo(p[i], p[i + 1]); ctx.lineTo(p[i + 2], p[i + 3]); }
+        ctx.strokeStyle = css(g.rgb, g.a * 0.85); ctx.lineWidth = g.w; ctx.stroke();
       }
-      if (kind === "sand") {
-        const sz = Math.min(9, m.s * 1.6 / m.z);
-        ctx.fillStyle = css(m.rgb, Math.min(1, k * 1.4) * 0.85);
-        ctx.fillRect(sx - sz / 2, sy - sz / 2, sz, sz);
-        continue;
-      }
-      // streak back toward where it was a moment ago: motion blur for free
-      const z2 = m.z - m.vz * 0.05;
-      const tx = m.ox + ((m.x - m.vx * 0.05) / z2) * f, ty = m.oy + ((m.y - m.vy * 0.05) / z2) * f;
-      ctx.strokeStyle = css(m.rgb, Math.min(1, k * 1.4) * 0.85);
-      ctx.lineWidth = Math.min(7, m.s / m.z);
-      ctx.lineCap = "round";
-      ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(sx, sy); ctx.stroke();
     }
     for (const r of rings) r.t += dt;
     rings = rings.filter(r => r.t < r.life);
@@ -251,7 +299,7 @@ const Background = (() => {
       const p = r.t / r.life;
       const rad = (1 - Math.pow(1 - p, 3)) * Math.hypot(W, H) * 0.55;
       ctx.strokeStyle = css(r.rgb, (1 - p) * 0.35 * r.k);
-      ctx.lineWidth = 2 + (1 - p) * 14 * r.k;
+      ctx.lineWidth = 2 + (1 - p) * 10 * r.k;
       ctx.beginPath(); ctx.arc(r.x, r.y, rad, 0, Math.PI * 2); ctx.stroke();
     }
   }
@@ -268,30 +316,43 @@ const Background = (() => {
     const beatEnv = beat.active ? Math.pow(Math.max(0, 1 - beat.phase), 2.5) * (0.22 + intensity * 0.15) : 0;
     pulse = Math.min(1, energy + beatEnv + intensity * 0.12 + zoneMode * zoneTension * 0.3);
     if (fade < 1) fade = Math.min(1, fade + dt / 1.8);
+    ctx.setTransform(res, 0, 0, res, 0, 0);
     drawGradient();
     const kind = theme.particles;
     const fn = drawers[kind] || drawers.stars;
     // additive light: overlapping particles bloom instead of muddying
     ctx.globalCompositeOperation = "lighter";
-    const sc = 1 + push * 0.06;
-    ctx.setTransform(sc, 0, 0, sc, (W / 2) * (1 - sc), (H / 2) * (1 - sc));
+    const sc = (1 + push * 0.06) * res;
+    ctx.setTransform(sc, 0, 0, sc, (W / 2) * (res - sc), (H / 2) * (res - sc));
     for (let i = 0; i < parts.length; i++) fn(parts[i], i);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (kind === "rain") flushRain();
+    ctx.setTransform(res, 0, 0, res, 0, 0);
     // event sparks hang in the air while time is stopped in the zone
     drawMotes(dt * Math.max(0.12, timeScale));
     ctx.globalCompositeOperation = "source-over";
-    if (vignette) { ctx.fillStyle = vignette; ctx.fillRect(0, 0, W, H); }
     // danger: the edges of the world throb red in time with the heartbeat
-    // (every other beat at first, every beat near the top)
-    if (danger > 0.3 && dangerGlow) {
+    // (every other beat at first, every beat near the top). It's a CSS
+    // layer, so only its opacity changes — no full-screen canvas fill.
+    let op = 0;
+    if (danger > 0.3) {
       const d = (danger - 0.3) / 0.7;
       const onHeart = beat.active && (danger > 0.7 || beat.n % 2 === 0);
       const throb = onHeart ? Math.pow(Math.max(0, 1 - beat.phase), 4) : 0;
-      ctx.globalAlpha = Math.min(1, d * (0.3 + throb * 0.7));
-      ctx.fillStyle = dangerGlow;
-      ctx.fillRect(0, 0, W, H);
-      ctx.globalAlpha = 1;
+      op = Math.min(1, d * (0.3 + throb * 0.7));
     }
+    const ops = op.toFixed(2);
+    if (ops !== dangerOp) { dangerOp = ops; dangerEl.style.opacity = ops; }
+  }
+
+  // 2 = full, 1 = full (blur handled in CSS), 0 = lite: half-res canvas,
+  // fewer ambient particles and sparks
+  function setQuality(q) {
+    const nextLite = q === 0;
+    const nextRes = nextLite ? 0.5 : 1;
+    if (nextLite === lite && nextRes === res) return;
+    lite = nextLite; res = nextRes;
+    resize();
+    parts = makeParticles(theme);
   }
 
   parts = makeParticles(theme);
@@ -305,6 +366,7 @@ const Background = (() => {
     setZoneTension(v) { zoneTension = Math.max(0, Math.min(1, v)); },
     setIntensity(v) { intensity = Math.max(0, Math.min(1, v)); },
     setDanger(v) { danger = Math.max(0, Math.min(1, v)); },
+    setQuality,
     get theme() { return theme; },
   };
 })();
