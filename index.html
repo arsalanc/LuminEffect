@@ -86,7 +86,15 @@
       <span class="mbtn-name">ZEN</span>
       <span class="mbtn-desc">No game over. No pressure. Pick a map and drift.</span>
     </button>
-    <button class="mbtn small" id="opensettings">SETTINGS</button>
+    <button class="mbtn" id="openeffect">
+      <span class="mbtn-name">EFFECT MODES</span>
+      <span class="mbtn-desc">Ultra, Purify, Mystery and today's Daily challenge.</span>
+    </button>
+    <div class="menu-row">
+      <button class="mbtn small" id="openstats">STATS</button>
+      <button class="mbtn small" id="opencontrols">CONTROLS</button>
+      <button class="mbtn small" id="opensettings">SETTINGS</button>
+    </div>
   </div>
   <p class="hiscore" id="hiscore"></p>
   <p class="help">← → move · ↓ soft drop · SPACE hard drop · Z / X rotate · C hold · SHIFT zone · P pause</p>
@@ -105,6 +113,39 @@
     <button class="mbtn small" id="jmap-continue">CONTINUE</button>
     <button class="mbtn small" id="jmap-back">BACK</button>
   </div>
+</div>
+
+<!-- ======== EFFECT MODES ======== -->
+<div id="effectmodes" class="overlay hidden">
+  <h2 class="overlay-title">EFFECT MODES</h2>
+  <div class="menu-buttons" id="effectlist"></div>
+  <button class="mbtn small" id="effectback">BACK</button>
+</div>
+
+<!-- ======== STATS ======== -->
+<div id="stats" class="overlay hidden">
+  <h2 class="overlay-title">STATS</h2>
+  <div id="stats-totals" class="statgrid"></div>
+  <div id="stats-modes"></div>
+  <div class="menu-buttons">
+    <button class="mbtn small" id="statsreset">RESET STATS</button>
+    <button class="mbtn small" id="statsback">BACK</button>
+  </div>
+</div>
+
+<!-- ======== CONTROLS ======== -->
+<div id="controls" class="overlay hidden">
+  <h2 class="overlay-title">CONTROLS</h2>
+  <p class="dim" id="controls-hint">click a key to rebind it · ESC cancels · DEL clears</p>
+  <div class="setpanel" id="keylist"></div>
+  <div class="setpanel">
+    <div class="setrow">
+      <label>SOFT DROP SPEED <b id="sdf-val"></b></label>
+      <input type="range" id="set-sdf" min="5" max="41" step="1">
+    </div>
+  </div>
+  <button class="mbtn small" id="keysreset">RESET DEFAULTS</button>
+  <button class="mbtn small" id="controlsback">BACK</button>
 </div>
 
 <!-- ======== MAP SELECT (zen) ======== -->
@@ -141,6 +182,14 @@
     <div class="setrow checkrow">
       <label for="set-ghost">GHOST PIECE</label>
       <input type="checkbox" id="set-ghost">
+    </div>
+    <div class="setrow checkrow">
+      <label for="set-patterns">BLOCK PATTERNS (COLORBLIND)</label>
+      <input type="checkbox" id="set-patterns">
+    </div>
+    <div class="setrow checkrow">
+      <label for="set-motion">REDUCE MOTION &amp; FLASHING</label>
+      <input type="checkbox" id="set-motion">
     </div>
     <div class="setrow checkrow">
       <label for="set-quantize">SNAP CLEAR SOUNDS TO BEAT</label>
@@ -185,8 +234,11 @@
 
 <script src="js/themes.js"></script>
 <script src="js/journey.js"></script>
+<script src="js/controls.js"></script>
+<script src="js/stats.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/engine.js"></script>
+<script src="js/modes.js"></script>
 <script src="js/fx.js"></script>
 <script src="js/main.js"></script>
 </body>

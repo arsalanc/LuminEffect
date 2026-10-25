@@ -2,7 +2,8 @@
 // Full-screen reactive background (one particle system per map) plus
 // board-space particle bursts for line clears, drops and zone cash-outs.
 // Each map's world reacts to big moments in its own way: bubbles swirl,
-// sand gusts outward, auroras flare, rain bends away, stars warp.
+// sand gusts outward, auroras flare, fireflies flash in a wave, rain bends
+// away, stars warp.
 
 // ---------- background ----------
 const Background = (() => {
@@ -28,6 +29,7 @@ const Background = (() => {
   let dangerOp = "0";
   let res = 1;       // backing-store scale; the low-effects tier renders at half res
   let lite = false;  // low-effects tier: fewer particles and sparks
+  let calm = false;  // reduced motion: gentler reactions, no shockwaves or throbbing
   let react = 0, rx = 0, ry = 0; // the map's reaction to the last big moment, centred at (rx, ry)
   let danger = 0; // 0..1 stack height — the edges of the world pulse red
 
@@ -45,7 +47,7 @@ const Background = (() => {
   function makeParticles(th) {
     const list = [];
     const kind = th.particles;
-    const count = Math.round((kind === "aurora" ? 26 : kind === "rain" ? 140 : 90) * (lite ? 0.55 : 1));
+    const count = Math.round((kind === "aurora" ? 26 : kind === "rain" ? 140 : kind === "fireflies" ? 70 : 90) * (lite ? 0.55 : 1));
     for (let i = 0; i < count; i++) {
       list.push({
         x: rand(0, 1), y: rand(0, 1),
@@ -156,6 +158,20 @@ const Background = (() => {
         ctx.fillRect(p.x * W, p.y * H * 0.7, 1.6, 1.6);
       }
     },
+    fireflies(p) {
+      // fireflies wander on slow curves and blink now and then; a big
+      // moment sets them all alight in a wave and scatters them
+      let x = (p.x + Math.sin(t * 0.13 * p.v + p.ph) * 0.06) * W;
+      let y = (p.y + Math.sin(t * 0.17 * p.v + p.ph * 1.7) * 0.05) * H;
+      const { k, ux, uy } = reach(x, y);
+      x += ux * k * 60; y += uy * k * 60;
+      const blink = Math.pow(Math.max(0, Math.sin(t * (0.6 + p.v * 0.9) + p.ph * 3)), 8);
+      const glow = Math.min(1, 0.12 + blink * 0.85 + pulse * 0.25 + k * 0.9);
+      ctx.fillStyle = `rgba(210,255,120,${(glow * 0.18).toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(x, y, 5 + p.s * 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgba(240,255,190,${glow.toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(x, y, 1 + p.s * 1.4, 0, Math.PI * 2); ctx.fill();
+    },
     rain(p) {
       // falling streaks; a big moment bends the rain away from it. Drops are
       // collected into a few alpha buckets and stroked together (a faint
@@ -221,7 +237,7 @@ const Background = (() => {
     const valid = (colors || []).filter(c => /^#[0-9a-f]{6}$/i.test(c));
     const cols = (valid.length ? valid : [theme.accent]).map(hexRGB);
     const ox = origin ? origin.x : W / 2, oy = origin ? origin.y : H / 2;
-    const n = Math.round(Math.min(130, 16 + strength * 64) * (lite ? 0.45 : 1));
+    const n = Math.round(Math.min(130, 16 + strength * 64) * (lite ? 0.45 : 1) * (calm ? 0.5 : 1));
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = rand(0.04, 0.32) * (0.6 + strength * 0.5);
@@ -235,10 +251,12 @@ const Background = (() => {
     }
     const cap = lite ? 150 : 320;
     if (motes.length > cap) motes.splice(0, motes.length - cap);
-    rings.push({ x: ox, y: oy, t: 0, life: 0.9 + strength * 0.5, k: Math.min(1, strength), rgb: cols[0] });
-    if (rings.length > 3) rings.shift(); // overlapping shockwaves read as one anyway
-    push = Math.min(1, push + strength * 0.5);
-    react = Math.min(1.4, react + strength * 0.8);
+    if (!calm) {
+      rings.push({ x: ox, y: oy, t: 0, life: 0.9 + strength * 0.5, k: Math.min(1, strength), rgb: cols[0] });
+      if (rings.length > 3) rings.shift(); // overlapping shockwaves read as one anyway
+      push = Math.min(1, push + strength * 0.5);
+    }
+    react = Math.min(calm ? 0.4 : 1.4, react + strength * (calm ? 0.25 : 0.8));
     rx = ox; ry = oy;
   }
 
@@ -313,7 +331,7 @@ const Background = (() => {
     react = Math.max(0, react - dt * Math.max(0.12, timeScale) * 0.9); // frozen in the zone too
     // breathe with the music: sharp swell on each beat that decays across it
     const beat = (typeof AudioSys !== "undefined") ? AudioSys.getBeat() : { active: false };
-    const beatEnv = beat.active ? Math.pow(Math.max(0, 1 - beat.phase), 2.5) * (0.22 + intensity * 0.15) : 0;
+    const beatEnv = beat.active ? Math.pow(Math.max(0, 1 - beat.phase), 2.5) * (0.22 + intensity * 0.15) * (calm ? 0.35 : 1) : 0;
     pulse = Math.min(1, energy + beatEnv + intensity * 0.12 + zoneMode * zoneTension * 0.3);
     if (fade < 1) fade = Math.min(1, fade + dt / 1.8);
     ctx.setTransform(res, 0, 0, res, 0, 0);
@@ -337,8 +355,8 @@ const Background = (() => {
     if (danger > 0.3) {
       const d = (danger - 0.3) / 0.7;
       const onHeart = beat.active && (danger > 0.7 || beat.n % 2 === 0);
-      const throb = onHeart ? Math.pow(Math.max(0, 1 - beat.phase), 4) : 0;
-      op = Math.min(1, d * (0.3 + throb * 0.7));
+      const throb = onHeart && !calm ? Math.pow(Math.max(0, 1 - beat.phase), 4) : 0;
+      op = Math.min(1, d * (calm ? 0.55 : 0.3 + throb * 0.7)); // calm: a steady glow, no pulsing
     }
     const ops = op.toFixed(2);
     if (ops !== dangerOp) { dangerOp = ops; dangerEl.style.opacity = ops; }
@@ -367,6 +385,7 @@ const Background = (() => {
     setIntensity(v) { intensity = Math.max(0, Math.min(1, v)); },
     setDanger(v) { danger = Math.max(0, Math.min(1, v)); },
     setQuality,
+    setCalm(v) { calm = !!v; },
     get theme() { return theme; },
   };
 })();

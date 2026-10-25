@@ -70,6 +70,27 @@ const THEMES = [
     },
   },
   {
+    id: "grove",
+    name: "FIREFLY GROVE",
+    sub: "small lights in the dark",
+    accent: "#d7ff7a",
+    bgTop: "#020a06", bgBottom: "#0d2a18",
+    particles: "fireflies",
+    pieceColors: ["#9ff7d0", "#ffe98a", "#d6a8ff", "#b6ff7a", "#ff9f8a", "#8fb8ff", "#ffc77a"],
+    audio: {
+      // lydian pentatonic: bright and floating, with that raised 4th
+      root: 116.54, scale: [0, 2, 4, 6, 9], wave: "triangle", padCutoff: 1000,
+      bpm: 88, kickEvery: 4, hat: false,
+      arp: [0, null, 4, 2, null, 3, 1, null], // kalimba-like, slightly lopsided
+      prog: [0, -2, 1, -1], bass: [1, null, null, 1, null, 1, null, null], bassLen: 2,
+      reverb: 3.4, wet: 0.42, delay: 0.45, pump: 0.25,
+      melody: { vowel: "o", phrases: [
+        [[0, 4, 2], [2, 5, 2], [4, 6, 3], [7, 5, 1], [8, 4, 4], [12, 2, 4]],
+        [[0, 7, 3], [3, 6, 1], [4, 5, 2], [6, 4, 2], [8, 5, 6], [14, 6, 2]],
+      ] },
+    },
+  },
+  {
     id: "neon",
     name: "NEON CITY",
     sub: "rain on glass",

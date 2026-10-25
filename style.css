@@ -485,3 +485,48 @@ body.portrait #zonehint { display: none; }
 body.portrait .stats { display: flex; flex-direction: row; gap: 12px; align-items: center; }
 body.portrait .stats .stat { margin-bottom: 0; }
 body.portrait .stats .stat span:last-child { font-size: 14px; }
+
+/* ---------- menu extras ---------- */
+.menu-row { display: flex; gap: 10px; width: min(440px, 84vw); }
+.menu-row .mbtn.small { flex: 1; width: auto; font-size: 13px; letter-spacing: 2px; padding: 10px 6px; }
+.mbtn-meta { display: block; font-size: 11px; letter-spacing: 1.5px; margin-top: 6px; color: var(--accent); opacity: .85; }
+
+/* mystery events tint the announcement: gifts green, curses red */
+#announce.good { text-shadow: 0 0 20px rgba(110, 255, 170, .8), 0 0 40px rgba(110, 255, 170, .5); }
+#announce.bad { text-shadow: 0 0 20px rgba(255, 90, 120, .8), 0 0 40px rgba(255, 90, 120, .5); }
+
+/* mystery UPSIDE DOWN: the well turns over (controls stay the same) */
+#board { transition: transform .5s ease; }
+#board.flipped { transform: scaleY(-1); }
+
+/* ---------- stats ---------- */
+.statgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; width: min(640px, 92vw); }
+.stat-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 12px 6px; border-radius: 10px;
+  border: 1px solid rgba(140, 180, 255, .2); background: rgba(10, 16, 36, .55);
+}
+.stat-cell b { font-size: 20px; font-variant-numeric: tabular-nums; text-shadow: 0 0 12px var(--glow); }
+.stat-cell .dim { font-size: 10px; text-align: center; }
+.modetable { border-collapse: collapse; width: min(640px, 92vw); font-size: 13px; font-variant-numeric: tabular-nums; }
+.modetable th { font-size: 10px; letter-spacing: 2px; opacity: .55; font-weight: 400; text-align: left; padding: 6px 8px; }
+.modetable td { padding: 8px; border-top: 1px solid rgba(140, 180, 255, .15); }
+.modetable td:first-child { letter-spacing: 2px; font-weight: 600; }
+@media (max-width: 560px) {
+  .statgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .modetable td:last-child, .modetable th:last-child { display: none; }
+}
+
+/* ---------- controls ---------- */
+.keyrow { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; font-size: 12px; letter-spacing: 2px; }
+.keychip { min-width: 96px; font-size: 12px; letter-spacing: 1px; }
+
+/* ---------- reduced motion ---------- */
+body.reduce-motion #announce.show { animation: fadeonly 1.2s ease-out; }
+@keyframes fadeonly { 0% { opacity: 0; } 15% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+body.reduce-motion #stagecard.show #stagecard-name,
+body.reduce-motion #stagecard.show #stagecard-sub { animation: fadeonly 3s ease-out; }
+body.reduce-motion .mbtn:hover { transform: none; }
+body.reduce-motion #zonemeter.ready #zonefill,
+body.reduce-motion .jnode.current { animation: none; }
+body.reduce-motion #board { transition: none; }

@@ -1,5 +1,5 @@
 // ============ JOURNEY MAP ============
-// Journey is a constellation of short stages rather than one long run, so it
+// Journey is a constellation of 13 short stages rather than one long run, so it
 // can be played in bursts. Each node is 1-2 minutes; progress persists, and
 // finishing one unlocks the next.
 //
@@ -26,10 +26,11 @@ const JOURNEY_NODES = [
   jnode("overdrive", "OVERDRIVE", "neon", 16, 7, 180, 250, "all of it at once"),
   // — act iii: climax —
   jnode("threshold", "THRESHOLD", "cosmos", 16, 8, 90, 430, "the last quiet moment"),
-  jnode("horizon", "EVENT HORIZON", "cosmos", 18, 9, 300, 430, "the edge of everything"),
+  jnode("horizon", "EVENT HORIZON", "cosmos", 18, 9, 270, 430, "the edge of everything"),
   // — act iv: comedown —
-  jnode("afterglow", "AFTERGLOW", "aurora", 12, 4, 510, 430, "the light comes back"),
-  jnode("home", "HOME", "deepsea", 10, 2, 720, 430, "you can rest now"),
+  jnode("afterglow", "AFTERGLOW", "aurora", 12, 4, 450, 430, "the light comes back"),
+  jnode("fireflies", "FIREFLIES", "grove", 12, 3, 630, 430, "small lights in the dark"),
+  jnode("home", "HOME", "deepsea", 10, 2, 810, 430, "you can rest now"),
 ];
 
 const JMAP_W = 900, JMAP_H = 500;
