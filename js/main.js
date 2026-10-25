@@ -23,6 +23,7 @@
   let elapsed = 0;
   let zoneVis = 0;    // eased 0..1 for zone tint
   let intensityVis = 0; // eased 0..1 danger/level intensity
+  let dangerVis = 0;    // eased 0..1 stack height alone — drives the heartbeat
   let flashRows = []; // {y, t} white flash on cleared rows
   let jIndex = 0;     // index into JOURNEY_NODES for the stage being played
   let stagePhase = 0; // journey mid-stage phase: 0 calm, 1 build, 2 climax
@@ -43,13 +44,20 @@
   };
 
   // ---------- settings ----------
-  const SETTINGS_DEFAULTS = { das: 150, arr: 33, volume: 70, ghost: true, zenSpeed: 1 };
+  const SETTINGS_DEFAULTS = { das: 150, arr: 33, volume: 70, ghost: true, quantize: true, vibrate: true, zenSpeed: 1 };
   const settings = Object.assign(
     {}, SETTINGS_DEFAULTS,
     (() => { try { return JSON.parse(localStorage.getItem("lumineffect-settings") || "{}"); } catch (e) { return {}; } })()
   );
   function saveSettings() { localStorage.setItem("lumineffect-settings", JSON.stringify(settings)); }
   AudioSys.setVolume(settings.volume / 100);
+  AudioSys.setQuantize(settings.quantize);
+
+  // haptics: phones feel the drops, clears and zone (no-op where unsupported)
+  function buzz(pattern) {
+    if (!settings.vibrate || !isTouch || !navigator.vibrate) return;
+    try { navigator.vibrate(pattern); } catch (e) {}
+  }
 
   function fmtTime(sec) {
     const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
@@ -78,17 +86,49 @@
     setTimeout(() => card.classList.add("hidden"), 3000);
   }
 
+  // board-space pixel → screen pixel, so world FX can erupt from the well
+  function boardPoint(px, py) {
+    const r = boardCanvas.getBoundingClientRect();
+    return { x: r.left + (px / BW) * r.width, y: r.top + (py / BH) * r.height };
+  }
+
   // ---------- engine events ----------
   function makeGame() {
     const g = new Tetris({
-      onLock() { AudioSys.lock(); },
+      onLock(cur, dropDist) {
+        AudioSys.lock();
+        const cells = [];
+        cur.m.forEach((row, y) => row.forEach((v, x) => {
+          if (v && cur.y + y >= HIDDEN_ROWS) cells.push([cur.x + x, cur.y + y - HIDDEN_ROWS]);
+        }));
+        fx.lockFlash(cells, CELL);
+        if (dropDist > 0) {
+          // hard drop: a streak of light down each column the piece fell through
+          const color = pieceColor(PIECE_ORDER.indexOf(cur.type) + 1);
+          const span = {};
+          cells.forEach(([x, y]) => {
+            const c = span[x] || (span[x] = [y, y]);
+            c[0] = Math.min(c[0], y); c[1] = Math.max(c[1], y);
+          });
+          for (const x in span) {
+            const [top, bot] = span[x];
+            fx.trail(+x * CELL, Math.max(0, top - dropDist) * CELL, (bot + 1) * CELL, CELL, color);
+          }
+        }
+      },
       onClear(info) {
         AudioSys.clear(info.lines, Math.max(0, info.combo)); // combos climb the scale
+        buzz(info.perfect || info.lines >= 4 ? [25, 40, 45] : 12 + info.lines * 8);
         if (info.spin) AudioSys.tspin();
         if (info.b2b) AudioSys.b2b();
         if (info.perfect) AudioSys.perfect();
         Background.beat(0.25 + info.lines * 0.15);
         fx.addShake(info.lines * 2 + (info.lines === 4 ? 4 : 0));
+        // the cleared rows' colors erupt out of the well into the world
+        const midRow = info.rows.reduce((a, r) => a + r, 0) / info.rows.length - HIDDEN_ROWS;
+        const burstCols = [...new Set(info.rowData.flat().filter(v => v).map(pieceColor))];
+        Background.burst(0.2 + info.lines * 0.2 + (info.spin ? 0.25 : 0) + (info.perfect ? 0.8 : 0),
+          burstCols, boardPoint(BW / 2, (midRow + 0.5) * CELL));
         // shatter choreography: each cell breaks loose in its own color,
         // rippling outward from the center of the row
         info.rows.forEach((r, i) => {
@@ -107,7 +147,10 @@
         else announce(info.name, sub.join(" · "));
         onLinesChanged();
       },
-      onTSpinNoLines(mini) { announce(mini ? "T-SPIN MINI" : "T-SPIN"); AudioSys.tspin(); },
+      onTSpinNoLines(mini) {
+        announce(mini ? "T-SPIN MINI" : "T-SPIN"); AudioSys.tspin();
+        Background.burst(0.15, [pieceColor(PIECE_ORDER.indexOf("T") + 1)], boardPoint(BW / 2, BH / 2));
+      },
       onZoneStart(total) {
         AudioSys.zoneStart();
         AudioSys.setZoneTempo(true); // time dilates: the groove drops to half speed
@@ -115,19 +158,28 @@
         $("zoneflash").classList.remove("flash"); void $("zoneflash").offsetWidth;
         $("zoneflash").classList.add("flash");
         announce("THE ZONE", "time stands still");
+        buzz([20, 60, 40]);
+        Background.burst(0.5, ["#ffffff", Background.theme.accent], boardPoint(BW / 2, BH / 2));
       },
       onZoneLines(count) {
         Background.beat(0.4 + Math.min(0.6, count * 0.04));
         AudioSys.zoneLine(count); // pitch climbs with every banked line
+        buzz(10);
         fx.addShake(1 + Math.min(6, count * 0.4));
+        // sparks freeze mid-air inside the zone, then fly when it ends
+        Background.burst(0.15, ["#dfe8ff", Background.theme.accent], boardPoint(BW / 2, BH - count * CELL));
       },
       onZoneEnd(res) {
         AudioSys.setZoneTempo(false);
         $("boardwrap").classList.remove("zone-active");
         if (res.lines > 0) {
           AudioSys.zoneEnd(res.lines);
+          buzz([40, 50, 70, 50, 100]);
           fx.addShake(4 + res.lines);
           Background.beat(1);
+          Background.burst(Math.min(2, 0.8 + res.lines / 10),
+            ["#ffffff", Background.theme.accent, ...Background.theme.pieceColors.slice(0, 3)],
+            boardPoint(BW / 2, BH - (res.lines / 2) * CELL));
           announce(res.name, `${res.lines} LINES · +${res.points.toLocaleString()}`);
           for (let i = 0; i < res.lines; i++) {
             const y = BH - (i + 1) * CELL;
@@ -142,6 +194,7 @@
           announce("REBUILD", "the board is yours again");
           Background.beat(0.8);
           fx.addShake(6);
+          buzz([40, 60, 40]);
           g.zenWipe();
         } else {
           gameOver(false);
@@ -245,6 +298,7 @@
   function gameOver(victory) {
     state = "over";
     AudioSys.gameOver();
+    buzz(victory ? [20, 40, 20, 40, 60] : [80, 80, 160]);
     AudioSys.stopMusic();
     $("boardwrap").classList.remove("zone-active");
     // sprint records finish time (only on completion); other modes record score
@@ -422,7 +476,7 @@
   function doHardDrop() {
     const gx = (game.cur.x + 1.5) * CELL;
     const gy = Math.min(BH - 4, (game.ghostY() - HIDDEN_ROWS + 1) * CELL);
-    game.hardDrop(); AudioSys.hardDrop(); fx.addShake(3);
+    game.hardDrop(); AudioSys.hardDrop(); fx.addShake(3); buzz(9);
     fx.burstAt(gx, Math.max(4, gy), Background.theme.accent, 8, 100);
   }
 
@@ -666,6 +720,10 @@
 
     // outer halo of the well swells on the beat
     $("boardwrap").style.setProperty("--beatpx", (be * 22).toFixed(1) + "px");
+    // near the top, the well's rim throbs red with the heartbeat
+    const d = (dangerVis - 0.3) / 0.7;
+    $("boardwrap").style.borderColor = d > 0 && !game.zone
+      ? `rgba(255,80,100,${(0.25 + d * 0.5 * (0.4 + be * 0.6)).toFixed(3)})` : "";
 
     // side panels
     drawPreview(hctx, holdCanvas, [game.hold]);
@@ -687,6 +745,11 @@
       : game.meter * 100;
     $("zonefill").style.height = fill + "%";
     $("zonemeter").classList.toggle("ready", game.zoneReady());
+  }
+
+  function stackTop() {
+    for (let y = 0; y < ROWS; y++) if (game.grid[y].some(v => v !== 0)) return y;
+    return ROWS;
   }
 
   // ---------- main loop ----------
@@ -721,19 +784,24 @@
     AudioSys.setZoneTension(zTension);
     Background.setZoneTension(zTension);
 
+    // sounds sit where the piece is: left wall pans left, right wall right
+    if (game && game.cur) AudioSys.setPan(((game.cur.x + game.cur.m[0].length / 2) / COLS) * 2 - 1);
+
     // speed-reactive intensity: stack height + level drive music & light
     if (game && state !== "menu" && state !== "mapselect" && state !== "journeymap") {
-      let top = ROWS;
-      for (let y = 0; y < ROWS; y++) {
-        if (game.grid[y].some(v => v !== 0)) { top = y; break; }
-      }
-      const stackDanger = Math.max(0, ((ROWS - top) - 8) / 10); // kicks in at 8 rows high
+      const stackDanger = Math.max(0, ((ROWS - stackTop()) - 8) / 10); // kicks in at 8 rows high
       const levelHeat = ((game.level - 1) / 14) * 0.55;
       const target = Math.min(1, Math.max(stackDanger, levelHeat));
       intensityVis += (target - intensityVis) * Math.min(1, dt * 1.5);
       AudioSys.setIntensity(intensityVis);
       Background.setIntensity(intensityVis);
     }
+    // danger is the stack alone, and only while you can still do something about it
+    const live = game && (state === "playing" || state === "transition");
+    const dTarget = live ? Math.min(1, Math.max(0, ((ROWS - stackTop()) - 8) / 10)) : 0;
+    dangerVis += (dTarget - dangerVis) * Math.min(1, dt * (dTarget > dangerVis ? 1.2 : 3));
+    AudioSys.setDanger(dangerVis);
+    Background.setDanger(dangerVis);
 
     for (const f of flashRows) f.t += dt;
     flashRows = flashRows.filter(f => f.t < 0.4);
@@ -926,9 +994,20 @@
   bindSlider("set-das", "das-val", "das", v => v + " ms");
   bindSlider("set-arr", "arr-val", "arr", v => v === 0 ? "instant" : v + " ms");
   bindSlider("set-vol", "vol-val", "volume", v => v + "%", v => { AudioSys.unlock(); AudioSys.setVolume(v / 100); });
-  $("set-ghost").checked = settings.ghost;
-  settingSyncs.push(() => { $("set-ghost").checked = settings.ghost; });
-  $("set-ghost").addEventListener("change", () => { settings.ghost = $("set-ghost").checked; saveSettings(); });
+  function bindCheck(id, key, onChange) {
+    const el = $(id);
+    const sync = () => { el.checked = settings[key]; };
+    sync();
+    settingSyncs.push(sync);
+    el.addEventListener("change", () => {
+      settings[key] = el.checked;
+      saveSettings();
+      if (onChange) onChange(settings[key]);
+    });
+  }
+  bindCheck("set-ghost", "ghost");
+  bindCheck("set-quantize", "quantize", v => AudioSys.setQuantize(v));
+  bindCheck("set-vibrate", "vibrate", v => { if (v) buzz(30); });
   // keep the zen speed chips in sync too
   settingSyncs.push(() => {
     speedBtns.querySelectorAll(".chip").forEach(c => c.classList.toggle("sel", +c.textContent === settings.zenSpeed));
@@ -938,6 +1017,7 @@
     saveSettings();
     settingSyncs.forEach(fn => fn());
     AudioSys.setVolume(settings.volume / 100);
+    AudioSys.setQuantize(settings.quantize);
   });
   $("opensettings").addEventListener("click", () => { $("menu").classList.add("hidden"); $("settings").classList.remove("hidden"); });
   $("setback").addEventListener("click", () => { $("settings").classList.add("hidden"); $("menu").classList.remove("hidden"); });
