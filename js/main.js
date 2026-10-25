@@ -78,10 +78,36 @@
     setTimeout(() => card.classList.add("hidden"), 3000);
   }
 
+  // board-space pixel → screen pixel, so world FX can erupt from the well
+  function boardPoint(px, py) {
+    const r = boardCanvas.getBoundingClientRect();
+    return { x: r.left + (px / BW) * r.width, y: r.top + (py / BH) * r.height };
+  }
+
   // ---------- engine events ----------
   function makeGame() {
     const g = new Tetris({
-      onLock() { AudioSys.lock(); },
+      onLock(cur, dropDist) {
+        AudioSys.lock();
+        const cells = [];
+        cur.m.forEach((row, y) => row.forEach((v, x) => {
+          if (v && cur.y + y >= HIDDEN_ROWS) cells.push([cur.x + x, cur.y + y - HIDDEN_ROWS]);
+        }));
+        fx.lockFlash(cells, CELL);
+        if (dropDist > 0) {
+          // hard drop: a streak of light down each column the piece fell through
+          const color = pieceColor(PIECE_ORDER.indexOf(cur.type) + 1);
+          const span = {};
+          cells.forEach(([x, y]) => {
+            const c = span[x] || (span[x] = [y, y]);
+            c[0] = Math.min(c[0], y); c[1] = Math.max(c[1], y);
+          });
+          for (const x in span) {
+            const [top, bot] = span[x];
+            fx.trail(+x * CELL, Math.max(0, top - dropDist) * CELL, (bot + 1) * CELL, CELL, color);
+          }
+        }
+      },
       onClear(info) {
         AudioSys.clear(info.lines, Math.max(0, info.combo)); // combos climb the scale
         if (info.spin) AudioSys.tspin();
@@ -89,6 +115,11 @@
         if (info.perfect) AudioSys.perfect();
         Background.beat(0.25 + info.lines * 0.15);
         fx.addShake(info.lines * 2 + (info.lines === 4 ? 4 : 0));
+        // the cleared rows' colors erupt out of the well into the world
+        const midRow = info.rows.reduce((a, r) => a + r, 0) / info.rows.length - HIDDEN_ROWS;
+        const burstCols = [...new Set(info.rowData.flat().filter(v => v).map(pieceColor))];
+        Background.burst(0.2 + info.lines * 0.2 + (info.spin ? 0.25 : 0) + (info.perfect ? 0.8 : 0),
+          burstCols, boardPoint(BW / 2, (midRow + 0.5) * CELL));
         // shatter choreography: each cell breaks loose in its own color,
         // rippling outward from the center of the row
         info.rows.forEach((r, i) => {
@@ -107,7 +138,10 @@
         else announce(info.name, sub.join(" · "));
         onLinesChanged();
       },
-      onTSpinNoLines(mini) { announce(mini ? "T-SPIN MINI" : "T-SPIN"); AudioSys.tspin(); },
+      onTSpinNoLines(mini) {
+        announce(mini ? "T-SPIN MINI" : "T-SPIN"); AudioSys.tspin();
+        Background.burst(0.15, [pieceColor(PIECE_ORDER.indexOf("T") + 1)], boardPoint(BW / 2, BH / 2));
+      },
       onZoneStart(total) {
         AudioSys.zoneStart();
         AudioSys.setZoneTempo(true); // time dilates: the groove drops to half speed
@@ -115,11 +149,14 @@
         $("zoneflash").classList.remove("flash"); void $("zoneflash").offsetWidth;
         $("zoneflash").classList.add("flash");
         announce("THE ZONE", "time stands still");
+        Background.burst(0.5, ["#ffffff", Background.theme.accent], boardPoint(BW / 2, BH / 2));
       },
       onZoneLines(count) {
         Background.beat(0.4 + Math.min(0.6, count * 0.04));
         AudioSys.zoneLine(count); // pitch climbs with every banked line
         fx.addShake(1 + Math.min(6, count * 0.4));
+        // sparks freeze mid-air inside the zone, then fly when it ends
+        Background.burst(0.15, ["#dfe8ff", Background.theme.accent], boardPoint(BW / 2, BH - count * CELL));
       },
       onZoneEnd(res) {
         AudioSys.setZoneTempo(false);
@@ -128,6 +165,9 @@
           AudioSys.zoneEnd(res.lines);
           fx.addShake(4 + res.lines);
           Background.beat(1);
+          Background.burst(Math.min(2, 0.8 + res.lines / 10),
+            ["#ffffff", Background.theme.accent, ...Background.theme.pieceColors.slice(0, 3)],
+            boardPoint(BW / 2, BH - (res.lines / 2) * CELL));
           announce(res.name, `${res.lines} LINES · +${res.points.toLocaleString()}`);
           for (let i = 0; i < res.lines; i++) {
             const y = BH - (i + 1) * CELL;
@@ -720,6 +760,9 @@
     const zTension = game && game.zone ? Math.min(1, game.zone.lines / 16) : 0;
     AudioSys.setZoneTension(zTension);
     Background.setZoneTension(zTension);
+
+    // sounds sit where the piece is: left wall pans left, right wall right
+    if (game && game.cur) AudioSys.setPan(((game.cur.x + game.cur.m[0].length / 2) / COLS) * 2 - 1);
 
     // speed-reactive intensity: stack height + level drive music & light
     if (game && state !== "menu" && state !== "mapselect" && state !== "journeymap") {

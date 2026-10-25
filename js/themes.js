@@ -17,6 +17,10 @@ const THEMES = [
       root: 110.0, scale: [0, 3, 5, 7, 10], wave: "sine", padCutoff: 900,
       bpm: 72, kickEvery: 4, hat: false,
       arp: [0, null, 2, null, 4, null, 2, null], // 8th-note steps, scale degrees
+      // harmony: one chord root (scale degree) per bar; bass pattern per
+      // 8th step (2 = octave up); room size in seconds and its wet level
+      prog: [0, 1, -1, 2], bass: [1, null, null, null, null, null, 1, null], bassLen: 5,
+      reverb: 4.2, wet: 0.45, delay: 0.25, pump: 0.25,
     },
   },
   {
@@ -31,6 +35,8 @@ const THEMES = [
       root: 130.81, scale: [0, 2, 4, 7, 9], wave: "triangle", padCutoff: 1200,
       bpm: 84, kickEvery: 4, hat: false,
       arp: [0, 2, 4, 2, 3, 2, 4, 2],
+      prog: [0, -1, 1, -2], bass: [1, null, null, 1, null, null, 1, null], bassLen: 2,
+      reverb: 2.6, wet: 0.32, delay: 0.3, pump: 0.3,
     },
   },
   {
@@ -45,6 +51,8 @@ const THEMES = [
       root: 146.83, scale: [0, 2, 3, 7, 8], wave: "sine", padCutoff: 800,
       bpm: 76, kickEvery: 4, hat: false,
       arp: [0, null, 3, null, 2, null, 4, null],
+      prog: [0, -1, 2, 3], bass: [1, null, null, null, null, null, null, null], bassLen: 7,
+      reverb: 5, wet: 0.5, delay: 0.35, pump: 0.2,
     },
   },
   {
@@ -59,6 +67,8 @@ const THEMES = [
       root: 98.0, scale: [0, 3, 5, 7, 10], wave: "sawtooth", padCutoff: 600,
       bpm: 100, kickEvery: 2, hat: true, // four-on-the-floor with offbeat hats
       arp: [0, 2, 4, 5, 3, 2, 4, 2],
+      prog: [0, -1, 1, 2], bass: [1, null, 1, 2, 1, null, 1, 2], bassLen: 0.9,
+      reverb: 2.2, wet: 0.28, delay: 0.4, pump: 0.55, // synthwave sidechain pump
     },
   },
   {
@@ -73,6 +83,8 @@ const THEMES = [
       root: 123.47, scale: [0, 2, 5, 7, 10], wave: "sine", padCutoff: 700,
       bpm: 66, kickEvery: 8, hat: false, // one deep pulse per bar
       arp: [0, null, null, 2, null, null, 4, null],
+      prog: [0, 2, -1, 3], chordBars: 2, bass: [1, null, null, null, null, null, null, null], bassLen: 8,
+      reverb: 6, wet: 0.55, delay: 0.35, pump: 0.2,
     },
   },
 ];
@@ -90,5 +102,7 @@ const MENU_THEME = {
     bpm: 58, kickEvery: 8, hat: false,
     arp: [0, null, null, 4, null, 2, null, null],
     padLevel: 0.085, kickLevel: 0.35, arpLevel: 0.75,
+    prog: [0, 2, -1, 2], chordBars: 2, bassLevel: 0,
+    reverb: 5, wet: 0.5, delay: 0.25, pump: 0.1,
   },
 };

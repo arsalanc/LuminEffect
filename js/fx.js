@@ -17,10 +17,17 @@ const Background = (() => {
   let zoneMode = 0; // 0..1, world turns monochrome-ish in zone
   let intensity = 0; // 0..1 danger/level signal — particles burn brighter
   let zoneTension = 0; // 0..1 banked zone lines — the frozen world hums louder
+  let motes = []; // event sparks flung out of the board toward the camera
+  let rings = []; // shockwaves expanding from the board
+  let push = 0;   // the ambient field flinches outward on big moments
+  let vignette = null;
 
   function resize() {
     W = canvas.width = window.innerWidth;
     H = canvas.height = window.innerHeight;
+    vignette = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.6);
+    vignette.addColorStop(0, "rgba(0,0,0,0)");
+    vignette.addColorStop(1, "rgba(0,0,6,0.55)");
   }
   window.addEventListener("resize", resize);
   resize();
@@ -142,11 +149,64 @@ const Background = (() => {
     },
   };
 
+  // Sparks live in a little 3D space: they start near the board and fly
+  // past the camera, so perspective spreads them across the whole screen.
+  function burst(strength = 0.5, colors = null, origin = null) {
+    const valid = (colors || []).filter(c => /^#[0-9a-f]{6}$/i.test(c));
+    const cols = (valid.length ? valid : [theme.accent]).map(hexRGB);
+    const ox = origin ? origin.x : W / 2, oy = origin ? origin.y : H / 2;
+    const n = Math.min(170, Math.round(18 + strength * 80));
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = rand(0.04, 0.32) * (0.6 + strength * 0.5);
+      motes.push({
+        x: rand(-0.04, 0.04), y: rand(-0.04, 0.04),
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        z: rand(0.9, 1.3), vz: -rand(0.35, 1.0) * (0.7 + strength * 0.6),
+        ox, oy, t: 0, life: rand(1.4, 2.6), s: rand(1, 2.6),
+        rgb: cols[i % cols.length],
+      });
+    }
+    if (motes.length > 600) motes.splice(0, motes.length - 600);
+    rings.push({ x: ox, y: oy, t: 0, life: 0.9 + strength * 0.5, k: Math.min(1, strength), rgb: cols[0] });
+    push = Math.min(1, push + strength * 0.5);
+  }
+
+  function drawMotes(dt) {
+    const f = Math.min(W, H) * 0.5; // focal length
+    for (const m of motes) {
+      m.t += dt;
+      m.x += m.vx * dt; m.y += m.vy * dt; m.z += m.vz * dt;
+    }
+    motes = motes.filter(m => m.t < m.life && m.z > 0.06);
+    for (const m of motes) {
+      const k = 1 - m.t / m.life;
+      const sx = m.ox + (m.x / m.z) * f, sy = m.oy + (m.y / m.z) * f;
+      // streak back toward where it was a moment ago: motion blur for free
+      const z2 = m.z - m.vz * 0.05;
+      const tx = m.ox + ((m.x - m.vx * 0.05) / z2) * f, ty = m.oy + ((m.y - m.vy * 0.05) / z2) * f;
+      ctx.strokeStyle = css(m.rgb, Math.min(1, k * 1.4) * 0.85);
+      ctx.lineWidth = Math.min(7, m.s / m.z);
+      ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(sx, sy); ctx.stroke();
+    }
+    for (const r of rings) r.t += dt;
+    rings = rings.filter(r => r.t < r.life);
+    for (const r of rings) {
+      const p = r.t / r.life;
+      const rad = (1 - Math.pow(1 - p, 3)) * Math.hypot(W, H) * 0.55;
+      ctx.strokeStyle = css(r.rgb, (1 - p) * 0.35 * r.k);
+      ctx.lineWidth = 2 + (1 - p) * 14 * r.k;
+      ctx.beginPath(); ctx.arc(r.x, r.y, rad, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
   function frame(dt) {
     // zone slow-motion: time eases to a slow backward drift inside the zone
     const timeScale = 1 - zoneMode * 1.25;
     t += dt * timeScale;
     energy = Math.max(0, energy - dt * 1.4);
+    push = Math.max(0, push - dt * 1.6);
     // breathe with the music: sharp swell on each beat that decays across it
     const beat = (typeof AudioSys !== "undefined") ? AudioSys.getBeat() : { active: false };
     const beatEnv = beat.active ? Math.pow(Math.max(0, 1 - beat.phase), 2.5) * (0.22 + intensity * 0.15) : 0;
@@ -155,7 +215,16 @@ const Background = (() => {
     drawGradient();
     const kind = theme.particles;
     const fn = drawers[kind] || drawers.stars;
+    // additive light: overlapping particles bloom instead of muddying
+    ctx.globalCompositeOperation = "lighter";
+    const sc = 1 + push * 0.06;
+    ctx.setTransform(sc, 0, 0, sc, (W / 2) * (1 - sc), (H / 2) * (1 - sc));
     for (let i = 0; i < parts.length; i++) fn(parts[i], i);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // event sparks hang in the air while time is stopped in the zone
+    drawMotes(dt * Math.max(0.12, timeScale));
+    ctx.globalCompositeOperation = "source-over";
+    if (vignette) { ctx.fillStyle = vignette; ctx.fillRect(0, 0, W, H); }
   }
 
   parts = makeParticles(theme);
@@ -164,6 +233,7 @@ const Background = (() => {
     setTheme,
     frame,
     beat(strength = 0.6) { energy = Math.min(1, energy + strength); },
+    burst,
     setZone(v) { zoneMode = v; },
     setZoneTension(v) { zoneTension = Math.max(0, Math.min(1, v)); },
     setIntensity(v) { intensity = Math.max(0, Math.min(1, v)); },
@@ -175,7 +245,15 @@ const Background = (() => {
 class BoardFX {
   constructor() {
     this.parts = [];
+    this.trails = [];  // hard-drop light columns
+    this.flashes = []; // freshly locked cells glinting
     this.shake = 0;
+  }
+  trail(x, y0, y1, w, color) {
+    this.trails.push({ x, y0, y1, w, color, t: 0, life: 0.3 });
+  }
+  lockFlash(cells, size) {
+    this.flashes.push({ cells, size, t: 0, life: 0.22 });
   }
   burstRow(yPix, wPix, cell, color, intensity = 1) {
     const n = Math.floor(22 * intensity);
@@ -245,8 +323,30 @@ class BoardFX {
       if (p.quad) p.rot += p.vr * dt;
     }
     this.parts = this.parts.filter(p => p.t < p.life);
+    for (const f of this.trails) f.t += dt;
+    for (const f of this.flashes) f.t += dt;
+    this.trails = this.trails.filter(f => f.t < f.life);
+    this.flashes = this.flashes.filter(f => f.t < f.life);
   }
   draw(ctx) {
+    ctx.globalCompositeOperation = "lighter";
+    for (const f of this.trails) {
+      const k = 1 - f.t / f.life;
+      const w = f.w * (0.35 + 0.65 * k);
+      const g = ctx.createLinearGradient(0, f.y0, 0, f.y1);
+      g.addColorStop(0, "rgba(255,255,255,0)");
+      g.addColorStop(1, f.color);
+      ctx.globalAlpha = k * 0.55;
+      ctx.fillStyle = g;
+      ctx.fillRect(f.x + (f.w - w) / 2, f.y0, w, f.y1 - f.y0);
+    }
+    for (const f of this.flashes) {
+      ctx.globalAlpha = (1 - f.t / f.life) * 0.5;
+      ctx.fillStyle = "#ffffff";
+      for (const [cx, cy] of f.cells) ctx.fillRect(cx * f.size + 2, cy * f.size + 2, f.size - 4, f.size - 4);
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
     for (const p of this.parts) {
       if (p.t < 0) continue;
       const k = 1 - p.t / p.life;
@@ -260,9 +360,11 @@ class BoardFX {
         ctx.fillRect(-s / 2, -s / 2, s, s);
         ctx.restore();
       } else {
+        ctx.globalCompositeOperation = "lighter"; // sparks glow
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r * k + 0.4, 0, Math.PI * 2);
         ctx.fill();
+        ctx.globalCompositeOperation = "source-over";
       }
     }
     ctx.globalAlpha = 1;

@@ -63,6 +63,14 @@ Portrait mode re-arranges the HUD (next queue on top, board center, stats below)
 
 Guideline-style engine: SRS rotation with wall kicks, 7-bag randomizer, ghost piece, hold, 5-piece preview, lock delay with move resets, T-spins (full + mini), back-to-back bonus, combos, perfect clears. All audio is synthesized live with WebAudio — each map plays in its own scale, and every move, rotate, clear and zone event is a note in it.
 
+## Audiovisual immersion
+
+- **Harmony that moves** — each map cycles through its own chord progression. The pad glides between chords, a bass line follows the roots once the groove kicks in, and every player sound (move, rotate, clear, zone) is pitched from the chord playing at that moment, so your input always lands in tune with the track.
+- **Space** — a synthesized reverb sized per map (tight for NEON CITY, cavernous for EVENT HORIZON) plus a tempo-synced ping-pong delay, glued by a bus compressor. The kick pumps the pad like a sidechain.
+- **Stereo placement** — move, rotate, drop and lock sounds pan with the active piece's column.
+- **The Zone sounds underwater** — the music sinks behind a lowpass and the room swells. Banking lines slowly lifts the filter, and cashing out snaps everything back into focus with a sub-bass impact. Your own sounds stay crisp the whole time.
+- **The world reacts** — line clears fling sparks in the cleared rows' colors out of the well and past the camera, with a shockwave ring and the background field flinching outward. Sparks freeze in mid-air during the Zone and fly when it ends. Hard drops leave light streaks, freshly locked pieces glint, and background particles blend additively under a soft vignette.
+
 ## Structure
 
 - `js/engine.js` — pure game logic (no DOM), unit-testable
