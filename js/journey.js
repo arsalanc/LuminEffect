@@ -59,10 +59,11 @@ const JourneyProgress = {
   isComplete(id) { return !!this.data[id]; },
   best(id) { return this.data[id] || null; },
 
-  // A node is playable once the previous one is cleared.
+  // A node is playable once the previous one is cleared — or if it was
+  // cleared itself, so stages added mid-journey never re-lock old progress.
   isUnlocked(index) {
     if (index <= 0) return true;
-    return this.isComplete(JOURNEY_NODES[index - 1].id);
+    return this.isComplete(JOURNEY_NODES[index].id) || this.isComplete(JOURNEY_NODES[index - 1].id);
   },
 
   // First unplayed node, or the last one if the journey is finished.
