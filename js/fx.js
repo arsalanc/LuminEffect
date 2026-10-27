@@ -2,8 +2,8 @@
 // Full-screen reactive background (one particle system per map) plus
 // board-space particle bursts for line clears, drops and zone cash-outs.
 // Each map's world reacts to big moments in its own way: bubbles swirl,
-// sand gusts outward, auroras flare, fireflies flash in a wave, rain bends
-// away, stars warp.
+// petals spiral up, sand gusts outward, auroras flare, fireflies flash in a
+// wave, rain bends away, lightning strikes the storm, stars warp.
 
 // ---------- background ----------
 const Background = (() => {
@@ -47,7 +47,8 @@ const Background = (() => {
   function makeParticles(th) {
     const list = [];
     const kind = th.particles;
-    const count = Math.round((kind === "aurora" ? 26 : kind === "rain" ? 140 : kind === "fireflies" ? 70 : 90) * (lite ? 0.55 : 1));
+    const base = { aurora: 26, rain: 140, storm: 170, fireflies: 70, petals: 90 }[kind] || 90;
+    const count = Math.round(base * (lite ? 0.55 : 1));
     for (let i = 0; i < count; i++) {
       list.push({
         x: rand(0, 1), y: rand(0, 1),
@@ -172,6 +173,32 @@ const Background = (() => {
       ctx.fillStyle = `rgba(240,255,190,${glow.toFixed(3)})`;
       ctx.beginPath(); ctx.arc(x, y, 1 + p.s * 1.4, 0, Math.PI * 2); ctx.fill();
     },
+    petals(p) {
+      // drifting blossoms, tumbling as they fall; a big moment lifts them
+      // in a rising spiral. Collected into one path and filled at once.
+      let x = ((p.x + t * 0.025 * p.v + Math.sin(t * 0.6 * p.v + p.ph) * 0.03) % 1 + 1) % 1 * W;
+      let y = ((p.y + t * 0.035 * (0.5 + p.v)) % 1) * H;
+      const { k } = reach(x, y);
+      if (k > 0.01) {
+        const a = -k * 2.2, c = Math.cos(a), sn = Math.sin(a), dx = x - rx, dy = y - ry;
+        x = rx + dx * c - dy * sn;
+        y = ry + dx * sn + dy * c - k * 70;
+      }
+      const flip = Math.abs(Math.sin(t * 1.7 * p.v + p.ph)); // tumbling: the petal narrows edge-on
+      const r = 4 + p.s * 5;
+      petalPath.push(x, y, r, r * (0.25 + 0.6 * flip), t * p.v + p.ph);
+    },
+    storm(p) {
+      // wind-driven rain, slanting hard; shares the rain batcher
+      const speed = 0.8 + p.v * 1.1;
+      const y = ((p.y + t * speed * 0.3) % 1) * H;
+      const x = ((p.x - y / W * 0.35) % 1 + 1) % 1 * W;
+      const len = 18 + p.v * 26;
+      const { k, ux } = reach(x, y + len / 2);
+      const x0 = x + ux * k * 40, x1 = x - len * 0.38 + ux * k * 110;
+      const a = Math.min(1, 0.12 + p.s * 0.18 + pulse * 0.2 + k * 0.4);
+      rainBuckets[Math.min(3, Math.floor(a * 4))].push(x0, y, x1, y + len);
+    },
     rain(p) {
       // falling streaks; a big moment bends the rain away from it. Drops are
       // collected into a few alpha buckets and stroked together (a faint
@@ -208,18 +235,38 @@ const Background = (() => {
     },
   };
 
+  const petalPath = [];
+  function flushPetals() {
+    ctx.fillStyle = `rgba(255,190,220,${(0.42 + pulse * 0.25).toFixed(3)})`;
+    ctx.beginPath();
+    const q = petalPath;
+    for (let i = 0; i < q.length; i += 5) {
+      // q[i..i+4] = x, y, radius x, radius y, rotation
+      ctx.moveTo(q[i] + q[i + 2] * Math.cos(q[i + 4]), q[i + 1] + q[i + 2] * Math.sin(q[i + 4]));
+      ctx.ellipse(q[i], q[i + 1], q[i + 2], q[i + 3], q[i + 4], 0, Math.PI * 2);
+    }
+    ctx.fill();
+    petalPath.length = 0;
+  }
+
+  // neon rain glows pink-to-cyan; storm rain is cold and grey
+  const RAIN_INK = {
+    rain: { tail: "255,110,220", head: "160,220,255", width: 1.3 },
+    storm: { tail: "110,130,165", head: "190,210,240", width: 1.1 },
+  };
   const rainBuckets = [[], [], [], []];
-  function flushRain() {
-    ctx.lineWidth = 1.3;
+  function flushRain(kind) {
+    const ink = RAIN_INK[kind];
+    ctx.lineWidth = ink.width;
     ctx.lineCap = "butt";
     rainBuckets.forEach((b, i) => {
       if (!b.length) return;
       const a = (i + 0.5) / 4;
-      ctx.strokeStyle = `rgba(255,110,220,${(a * 0.25).toFixed(3)})`;
+      ctx.strokeStyle = `rgba(${ink.tail},${(a * 0.25).toFixed(3)})`;
       ctx.beginPath();
       for (let j = 0; j < b.length; j += 4) { ctx.moveTo(b[j], b[j + 1]); ctx.lineTo(b[j + 2], b[j + 3]); }
       ctx.stroke();
-      ctx.strokeStyle = `rgba(160,220,255,${a.toFixed(3)})`;
+      ctx.strokeStyle = `rgba(${ink.head},${a.toFixed(3)})`;
       ctx.beginPath();
       for (let j = 0; j < b.length; j += 4) {
         // bright head: the lower 45% of the streak
@@ -258,6 +305,44 @@ const Background = (() => {
     }
     react = Math.min(calm ? 0.4 : 1.4, react + strength * (calm ? 0.25 : 0.8));
     rx = ox; ry = oy;
+    // the storm answers big moments with lightning down to where they
+    // happened (a flash, so never with reduced motion)
+    if (theme.particles === "storm" && !calm && strength >= 0.35) bolts.push(makeBolt(ox, oy, strength));
+  }
+
+  // a jagged path from the top of the sky to (tx, ty), with a fork or two
+  let bolts = [];
+  function makeBolt(tx, ty, strength) {
+    const segs = 14;
+    let x = tx + rand(-0.25, 0.25) * W, y = -10;
+    const pts = [[x, y]];
+    const forks = [];
+    for (let i = 1; i <= segs; i++) {
+      const f = i / segs;
+      x += (tx - x) / (segs - i + 1) + rand(-28, 28) * (1 - f * 0.6);
+      y = -10 + (ty + 10) * f;
+      pts.push([x, y]);
+      if (i > 3 && i < segs - 2 && Math.random() < 0.18) forks.push([[x, y], [x + rand(-90, 90), y + rand(40, 110)]]);
+    }
+    return { pts, forks, t: 0, life: 0.32 + strength * 0.12, k: Math.min(1, strength) };
+  }
+  function drawBolts(dt) {
+    for (const b of bolts) b.t += dt;
+    bolts = bolts.filter(b => b.t < b.life);
+    for (const b of bolts) {
+      // flickers twice as it fades
+      const f = 1 - b.t / b.life;
+      const a = f * (0.6 + 0.4 * Math.abs(Math.sin(b.t * 60))) * b.k;
+      for (const [w, alpha] of [[9, 0.12], [2.2, 0.9]]) {
+        ctx.strokeStyle = `rgba(210,225,255,${(a * alpha).toFixed(3)})`;
+        ctx.lineWidth = w;
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        b.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+        for (const [[x0, y0], [x1, y1]] of b.forks) { ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); }
+        ctx.stroke();
+      }
+    }
   }
 
   function drawMotes(dt) {
@@ -343,10 +428,12 @@ const Background = (() => {
     const sc = (1 + push * 0.06) * res;
     ctx.setTransform(sc, 0, 0, sc, (W / 2) * (res - sc), (H / 2) * (res - sc));
     for (let i = 0; i < parts.length; i++) fn(parts[i], i);
-    if (kind === "rain") flushRain();
+    if (kind === "rain" || kind === "storm") flushRain(kind);
+    if (kind === "petals") flushPetals();
     ctx.setTransform(res, 0, 0, res, 0, 0);
     // event sparks hang in the air while time is stopped in the zone
     drawMotes(dt * Math.max(0.12, timeScale));
+    if (bolts.length) drawBolts(dt);
     ctx.globalCompositeOperation = "source-over";
     // danger: the edges of the world throb red in time with the heartbeat
     // (every other beat at first, every beat near the top). It's a CSS

@@ -530,3 +530,16 @@ body.reduce-motion .mbtn:hover { transform: none; }
 body.reduce-motion #zonemeter.ready #zonefill,
 body.reduce-motion .jnode.current { animation: none; }
 body.reduce-motion #board { transition: none; }
+
+/* ---------- attract loop ---------- */
+#attract {
+  position: fixed; left: 0; right: 0; bottom: max(4vh, 18px);
+  z-index: 6;
+  text-align: center;
+  font-size: 13px; letter-spacing: 6px;
+  text-shadow: 0 0 14px var(--glow);
+  pointer-events: none;
+  animation: attractpulse 2.4s ease-in-out infinite;
+}
+@keyframes attractpulse { 50% { opacity: .35; } }
+body.reduce-motion #attract { animation: none; opacity: .7; }

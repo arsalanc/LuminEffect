@@ -1,5 +1,5 @@
 // ============ JOURNEY MAP ============
-// Journey is a constellation of 13 short stages rather than one long run, so it
+// Journey is a constellation of 15 short stages rather than one long run, so it
 // can be played in bursts. Each node is 1-2 minutes; progress persists, and
 // finishing one unlocks the next.
 //
@@ -16,14 +16,16 @@ function jnode(id, name, theme, goal, level, x, y, sub) {
 const JOURNEY_NODES = [
   // — act i: awakening —
   jnode("first-light", "FIRST LIGHT", "deepsea", 8, 1, 90, 70, "the surface, still bright"),
-  jnode("drift", "DRIFT", "deepsea", 10, 2, 300, 70, "letting go"),
-  jnode("shallows", "SHALLOWS", "aurora", 10, 3, 510, 70, "cold light on ice"),
-  jnode("windward", "WINDWARD", "dunes", 12, 3, 720, 70, "the wind picks up"),
+  jnode("drift", "DRIFT", "deepsea", 10, 2, 270, 70, "letting go"),
+  jnode("shallows", "SHALLOWS", "aurora", 10, 3, 450, 70, "cold light on ice"),
+  jnode("petals", "PETALS", "sakura", 10, 3, 630, 70, "the wind carries everything"),
+  jnode("windward", "WINDWARD", "dunes", 12, 3, 810, 70, "the wind picks up"),
   // — act ii: the build —
   jnode("mirage", "MIRAGE", "dunes", 12, 4, 810, 250, "heat and repetition"),
-  jnode("descent", "DESCENT", "deepsea", 14, 5, 600, 250, "down past the light"),
-  jnode("signal", "SIGNAL", "neon", 14, 6, 390, 250, "something is calling"),
-  jnode("overdrive", "OVERDRIVE", "neon", 16, 7, 180, 250, "all of it at once"),
+  jnode("descent", "DESCENT", "deepsea", 14, 5, 630, 250, "down past the light"),
+  jnode("signal", "SIGNAL", "neon", 14, 6, 450, 250, "something is calling"),
+  jnode("stormfront", "STORMFRONT", "storm", 15, 7, 270, 250, "the sky breaks open"),
+  jnode("overdrive", "OVERDRIVE", "neon", 16, 7, 90, 250, "all of it at once"),
   // — act iii: climax —
   jnode("threshold", "THRESHOLD", "cosmos", 16, 8, 90, 430, "the last quiet moment"),
   jnode("horizon", "EVENT HORIZON", "cosmos", 18, 9, 270, 430, "the edge of everything"),
@@ -59,10 +61,11 @@ const JourneyProgress = {
   isComplete(id) { return !!this.data[id]; },
   best(id) { return this.data[id] || null; },
 
-  // A node is playable once the previous one is cleared.
+  // A node is playable once the previous one is cleared — or if it was
+  // cleared itself, so stages added mid-journey never re-lock old progress.
   isUnlocked(index) {
     if (index <= 0) return true;
-    return this.isComplete(JOURNEY_NODES[index - 1].id);
+    return this.isComplete(JOURNEY_NODES[index].id) || this.isComplete(JOURNEY_NODES[index - 1].id);
   },
 
   // First unplayed node, or the last one if the journey is finished.
