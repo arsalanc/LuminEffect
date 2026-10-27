@@ -24,6 +24,12 @@ const EFFECT_MODES = {
     desc: "Two minutes, the same pieces and twist for everyone today.",
     timeLimit: 120,
   },
+  theater: {
+    name: "THEATER", sub: "sit back",
+    desc: "The game plays itself through every world. Just watch and listen.",
+    linesPerMap: 24,   // lines before the tour moves on to the next map
+    attractAfter: 30,  // seconds idle on the menu before the theater starts by itself
+  },
 };
 
 // Purify: dark rows creep up faster the more you've already cleansed

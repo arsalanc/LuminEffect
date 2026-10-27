@@ -26,6 +26,7 @@ window.addEventListener("keydown", e => {
   if (!action) return;
 
   if (state === "playing" || state === "transition") {
+    if (mode === "theater" && action !== "pause") return; // the bot has the controls
     e.preventDefault();
     held[action] = true;
     switch (action) {
@@ -87,6 +88,7 @@ if (isTouch) {
   $("game").addEventListener("pointerdown", e => {
     AudioSys.unlock();
     if (state !== "playing" && state !== "transition") return;
+    if (mode === "theater") return; // the bot has the controls
     tp = {
       id: e.pointerId,
       x0: e.clientX, y0: e.clientY,
@@ -141,7 +143,7 @@ if (isTouch) {
     $(id).addEventListener("pointerdown", e => {
       e.preventDefault(); e.stopPropagation();
       AudioSys.unlock();
-      if (state === "playing" || state === "transition") fn();
+      if ((state === "playing" || state === "transition") && (mode !== "theater" || id === "tb-pause")) fn();
     });
   }
   tbtn("tb-hold", () => { if (game.holdPiece()) AudioSys.hold(); });

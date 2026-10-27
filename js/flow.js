@@ -104,7 +104,7 @@ function makeGame(seed = null) {
       onLinesChanged();
     },
     onTopOut() {
-      if (mode === "zen") {
+      if (mode === "zen" || mode === "theater") {
         announce("REBUILD", "the board is yours again");
         Background.beat(0.8);
         shake(6);
@@ -163,6 +163,32 @@ function onLinesChanged() {
     if (lvl > game.level) { game.level = lvl; AudioSys.levelUp(); announce(`LEVEL ${lvl}`); }
   } else if (mode === "ultra" || mode === "mystery" || mode === "daily") {
     levelUpEvery10();
+  } else if (mode === "theater") {
+    theaterProgress();
+  }
+}
+
+// THEATER tours the maps in order, each one building calm → climax like a
+// journey stage before the next takes over
+function theaterProgress() {
+  const per = EFFECT_MODES.theater.linesPerMap;
+  const leg = Math.floor(game.lines / per);
+  if (leg !== ms.leg) {
+    ms.leg = leg;
+    zenTheme = THEMES[(ms.startIdx + leg) % THEMES.length];
+    applyTheme();
+    stagePhase = 0;
+    AudioSys.setPhase(0);
+    game.level = 3;
+    showStageCard(zenTheme.name, zenTheme.sub);
+  }
+  const into = (game.lines % per) / per;
+  const ph = into >= 0.7 ? 2 : into >= 0.35 ? 1 : 0;
+  if (ph > stagePhase) {
+    stagePhase = ph;
+    game.level = 3 + ph;
+    AudioSys.setPhase(ph);
+    AudioSys.phaseShift();
   }
 }
 
@@ -264,7 +290,8 @@ function startGame(m, themeChoice = null, nodeIndex = 0) {
   } : null;
   if (isEffectMode(m)) {
     zenTheme = daily ? daily.theme : THEMES[Math.floor(Math.random() * THEMES.length)];
-    game.level = m === "purify" ? 2 : 1;
+    game.level = m === "purify" ? 2 : m === "theater" ? 3 : 1;
+    if (m === "theater") { ms.leg = 0; ms.startIdx = THEMES.indexOf(zenTheme); autoPlan = null; }
     if (hasRising()) game.addGarbage(m === "purify" ? 4 : 2); // start with some dark to dig into
   }
   if (m === "zen") {
@@ -281,13 +308,13 @@ function startGame(m, themeChoice = null, nodeIndex = 0) {
   $("modename").textContent = m === "journey" ? curNode().name
     : daily ? `DAILY · ${DAILY_TWISTS[daily.twist].name}` : m.toUpperCase();
   $("goal-label").textContent = {
-    journey: "GOAL", classic: "NEXT LVL", sprint: "LEFT", zen: "FLOW",
+    journey: "GOAL", classic: "NEXT LVL", sprint: "LEFT", zen: "FLOW", theater: "NEXT MAP",
     ultra: "TIME LEFT", daily: "TIME LEFT", purify: "PURIFIED", mystery: "NEXT EVENT",
   }[m];
   const th = m === "journey" ? themeById(curNode().theme) : m === "classic" ? THEMES[0] : zenTheme;
   Background.setTheme(th);
   AudioSys.setTheme(th);
-  AudioSys.setPhase(m === "journey" ? 0 : 1); // journey opens calm
+  AudioSys.setPhase(m === "journey" || m === "theater" ? 0 : 1); // journey and theater open calm
   $("mapname").textContent = th.name;
 
   $("menu").classList.add("hidden");
@@ -301,8 +328,9 @@ function startGame(m, themeChoice = null, nodeIndex = 0) {
   fitLayout();
   if (m === "journey") showStageCard(curNode().name, curNode().sub);
   else if (daily) showStageCard("DAILY " + daily.key, `${th.name.toLowerCase()} · ${DAILY_TWISTS[daily.twist].sub}`);
-  else if (isEffectMode(m)) showStageCard(EFFECT_MODES[m].name, EFFECT_MODES[m].sub);
+  else if (isEffectMode(m) && m !== "theater") showStageCard(EFFECT_MODES[m].name, EFFECT_MODES[m].sub);
   else showStageCard(th.name, th.sub);
+  $("attract").classList.toggle("hidden", !(m === "theater" && attract));
   state = "playing";
 }
 
@@ -376,6 +404,8 @@ function gameOver(victory) {
 
 function toMenu() {
   state = "menu";
+  attract = false;
+  $("attract").classList.add("hidden");
   endMysteryEffect();
   hideStageCard();
   AudioSys.stopMusic();

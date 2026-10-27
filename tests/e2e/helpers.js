@@ -27,15 +27,16 @@ const click = (page, sel) => page.evaluate(s => document.querySelector(s).click(
 const text = (page, sel) => page.evaluate(s => document.querySelector(s).textContent, sel);
 const visible = (page, sel) => page.evaluate(s => !document.querySelector(s).classList.contains("hidden"), sel);
 
+const EFFECT_IDS = ["ultra", "purify", "mystery", "daily", "theater"];
+
 // start a main-menu mode, or an effect mode by id (zen: on map `zenMap`)
 async function startMode(page, id, zenMap = 0) {
   if (id === "zen") {
     await click(page, '.mbtn[data-mode="zen"]');
     await page.evaluate(i => document.querySelectorAll(".mapcard")[i].click(), zenMap);
-  } else if (["ultra", "purify", "mystery", "daily"].includes(id)) {
+  } else if (EFFECT_IDS.includes(id)) {
     await click(page, "#openeffect");
-    await page.evaluate(i => [...document.querySelectorAll("#effectlist .mbtn")][i].click(),
-      ["ultra", "purify", "mystery", "daily"].indexOf(id));
+    await page.evaluate(i => [...document.querySelectorAll("#effectlist .mbtn")][i].click(), EFFECT_IDS.indexOf(id));
   } else {
     await click(page, `.mbtn[data-mode="${id}"]`);
   }

@@ -29,7 +29,7 @@ test("every menu screen opens and returns", async () => {
     await click(page, back);
     assert.equal(await visible(page, "#menu"), true);
   }
-  assert.equal(await page.evaluate(() => document.querySelectorAll("#effectlist .mbtn").length), 4);
+  assert.equal(await page.evaluate(() => document.querySelectorAll("#effectlist .mbtn").length), 5);
   assert.deepEqual(errors, []);
   await close();
 });

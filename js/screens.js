@@ -225,7 +225,7 @@ $("setback").addEventListener("click", () => { $("settings").classList.add("hidd
 $("resume").addEventListener("click", () => { state = "playing"; $("pause").classList.add("hidden"); });
 $("quit").addEventListener("click", () => {
   // a run abandoned from the pause menu still counts toward lifetime stats
-  if (game && !game.over && state === "paused") {
+  if (game && !game.over && state === "paused" && mode !== "theater") { // the bot's runs aren't yours
     LifetimeStats.record(mode, game, elapsed, { finished: false, timed: TIMED_MODES.has(mode) });
   }
   mode === "journey" ? showJourneyMap() : toMenu();
@@ -250,7 +250,7 @@ function renderEffectModes() {
   const s = store.scores;
   const list = $("effectlist");
   list.innerHTML = "";
-  for (const id of ["ultra", "purify", "mystery", "daily"]) {
+  for (const id of ["ultra", "purify", "mystery", "daily", "theater"]) {
     const def = EFFECT_MODES[id];
     let meta;
     if (id === "daily") {
@@ -259,6 +259,8 @@ function renderEffectModes() {
       meta = `${d.key} · ${d.theme.name} · ${DAILY_TWISTS[d.twist].name}`
         + (r.today != null ? ` · TODAY ${r.today.toLocaleString()}` : " · NOT PLAYED YET")
         + (r.streak > 1 ? ` · ${r.streak} DAY STREAK` : "");
+    } else if (id === "theater") {
+      meta = `${THEMES.length} WORLDS · ${keyLabel(keyBinds.pause[0])} TO LEAVE`;
     } else {
       meta = s[id] ? `BEST ${TIMED_MODES.has(id) ? fmtTime(s[id]) : s[id].toLocaleString()}` : "NO RECORD YET";
     }

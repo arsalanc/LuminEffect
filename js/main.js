@@ -16,10 +16,12 @@ function loop(now) {
     handleDAS(dt);
     game.update(dt);
     updateMode(dt);
+    updateAutoplay(dt);
   } else if (state === "transition") {
     transitionTimer -= dt;
     handleDAS(dt);
     game.update(dt); // keep playing through the card
+    updateAutoplay(dt);
     if (transitionTimer <= 0) state = "playing";
     elapsed += dt;
   }
@@ -59,6 +61,7 @@ function loop(now) {
   fx.update(dt);
 
   if (state !== "menu" && state !== "mapselect" && state !== "journeymap") render();
+  checkAttract();
 }
 requestAnimationFrame(loop);
 

@@ -271,6 +271,7 @@ function render() {
   else if (mode === "sprint") setText("goal", `${Math.max(0, 40 - game.lines)} lines`);
   else if (mode === "ultra" || mode === "daily") setText("goal", fmtTime(Math.max(0, EFFECT_MODES[mode].timeLimit - elapsed + 0.999)));
   else if (mode === "purify") setText("goal", `${game.purified} / ${EFFECT_MODES.purify.target}`);
+  else if (mode === "theater") setText("goal", `${EFFECT_MODES.theater.linesPerMap - game.lines % EFFECT_MODES.theater.linesPerMap} lines`);
   else if (mode === "mystery") setText("goal", ms.active ? ms.active.ev.name : `${Math.ceil(EFFECT_MODES.mystery.every - ms.eventT)}s`);
   else setText("goal", "∞");
 

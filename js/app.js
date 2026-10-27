@@ -5,7 +5,7 @@
 // This file owns the DOM handles, board geometry, the run's mutable state,
 // persisted scores and settings, and small helpers used everywhere.
 //
-// Load order: app → render → flow → input → quality → screens → main.
+// Load order: app → render → flow → input → autoplay → quality → screens → main.
 
 const $ = id => document.getElementById(id);
 const boardCanvas = $("board"), bctx = boardCanvas.getContext("2d");
