@@ -20,6 +20,9 @@ html, body {
 .hidden { display: none !important; }
 .dim { opacity: .55; font-size: 12px; letter-spacing: 2px; }
 
+#bgfill, #bgglow { position: fixed; inset: 0; z-index: 0; }
+#bgglow { opacity: 0; will-change: opacity; }
+
 #bg {
   position: fixed;
   inset: 0;
@@ -100,10 +103,12 @@ html, body {
 #zonefill {
   position: absolute;
   bottom: 0; left: 0; right: 0;
-  height: 0%;
+  height: 100%;
+  transform: scaleY(0); /* driven per-frame; transform never triggers layout */
+  transform-origin: bottom;
   background: linear-gradient(to top, var(--accent), #ffffff);
   box-shadow: 0 0 18px var(--glow);
-  transition: height .25s ease;
+  transition: transform .25s ease;
 }
 #zonemeter.ready #zonefill { animation: zpulse 1s ease-in-out infinite; }
 @keyframes zpulse { 50% { filter: brightness(1.6); } }
@@ -116,11 +121,49 @@ html, body {
   padding: 6px;
   background: rgba(5, 8, 20, .6);
   border: 1px solid rgba(140, 180, 255, .25);
-  --beatpx: 0px; /* driven per-frame by the beat clock */
-  box-shadow: 0 0 calc(36px + var(--beatpx)) rgba(20, 40, 120, .40), inset 0 0 60px rgba(0, 0, 20, .5);
+  box-shadow: 0 0 36px rgba(20, 40, 120, .40), inset 0 0 60px rgba(0, 0, 20, .5);
   backdrop-filter: blur(4px);
 }
 #board { display: block; border-radius: 8px; }
+
+/* beat halo and danger rim: static glows whose opacity is driven per frame,
+   so the compositor animates them without repainting the well */
+#beathalo, #dangerrim {
+  position: absolute; inset: -1px;
+  border-radius: 12px;
+  pointer-events: none;
+  opacity: 0;
+  will-change: opacity;
+}
+#beathalo { box-shadow: 0 0 34px 4px var(--glow); }
+#dangerrim { border: 1px solid rgba(255, 80, 100, .95); box-shadow: 0 0 22px rgba(255, 50, 80, .45); }
+
+/* world overlays above the background canvas: depth vignette and the red
+   danger throb (opacity driven per frame) */
+#vignette, #dangerglow {
+  position: fixed; inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+#vignette { background: radial-gradient(ellipse at center, transparent 45%, rgba(0, 0, 6, .55) 100%); }
+#dangerglow {
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(255, 30, 60, .55) 100%);
+  opacity: 0;
+  will-change: opacity;
+}
+
+/* Lighter effects tiers (set automatically when frames run slow, or in
+   settings). Backdrop blur over an animated background is re-rendered every
+   frame, which is the single most expensive thing on the page, so it goes
+   first; the panels get more opaque to keep the glass look readable. */
+body.fx-noblur .panel,
+body.fx-noblur #boardwrap,
+body.fx-noblur .overlay,
+body.fx-noblur .tbtn { backdrop-filter: none; -webkit-backdrop-filter: none; }
+body.fx-noblur .panel { background: rgba(8, 12, 28, .82); }
+body.fx-noblur #boardwrap { background: rgba(5, 8, 20, .86); }
+body.fx-noblur .overlay { background: rgba(3, 5, 14, .8); }
+body.fx-noblur .tbtn { background: rgba(10, 16, 36, .85); }
 
 #boardwrap.zone-active {
   border-color: rgba(255, 255, 255, .7);
@@ -350,6 +393,8 @@ body.portrait .jnode { width: 52px; height: 52px; }
 .speedpick { display: flex; align-items: center; gap: 12px; }
 .speedpick .panel-label { margin: 0; }
 #speedbtns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.chiprow { display: flex; gap: 6px; flex-wrap: wrap; }
+.chiprow .chip { font-size: 11px; letter-spacing: 1px; padding: 5px 10px; }
 .chip {
   cursor: pointer;
   padding: 6px 12px;
@@ -440,3 +485,48 @@ body.portrait #zonehint { display: none; }
 body.portrait .stats { display: flex; flex-direction: row; gap: 12px; align-items: center; }
 body.portrait .stats .stat { margin-bottom: 0; }
 body.portrait .stats .stat span:last-child { font-size: 14px; }
+
+/* ---------- menu extras ---------- */
+.menu-row { display: flex; gap: 10px; width: min(440px, 84vw); }
+.menu-row .mbtn.small { flex: 1; width: auto; font-size: 13px; letter-spacing: 2px; padding: 10px 6px; }
+.mbtn-meta { display: block; font-size: 11px; letter-spacing: 1.5px; margin-top: 6px; color: var(--accent); opacity: .85; }
+
+/* mystery events tint the announcement: gifts green, curses red */
+#announce.good { text-shadow: 0 0 20px rgba(110, 255, 170, .8), 0 0 40px rgba(110, 255, 170, .5); }
+#announce.bad { text-shadow: 0 0 20px rgba(255, 90, 120, .8), 0 0 40px rgba(255, 90, 120, .5); }
+
+/* mystery UPSIDE DOWN: the well turns over (controls stay the same) */
+#board { transition: transform .5s ease; }
+#board.flipped { transform: scaleY(-1); }
+
+/* ---------- stats ---------- */
+.statgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; width: min(640px, 92vw); }
+.stat-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 12px 6px; border-radius: 10px;
+  border: 1px solid rgba(140, 180, 255, .2); background: rgba(10, 16, 36, .55);
+}
+.stat-cell b { font-size: 20px; font-variant-numeric: tabular-nums; text-shadow: 0 0 12px var(--glow); }
+.stat-cell .dim { font-size: 10px; text-align: center; }
+.modetable { border-collapse: collapse; width: min(640px, 92vw); font-size: 13px; font-variant-numeric: tabular-nums; }
+.modetable th { font-size: 10px; letter-spacing: 2px; opacity: .55; font-weight: 400; text-align: left; padding: 6px 8px; }
+.modetable td { padding: 8px; border-top: 1px solid rgba(140, 180, 255, .15); }
+.modetable td:first-child { letter-spacing: 2px; font-weight: 600; }
+@media (max-width: 560px) {
+  .statgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .modetable td:last-child, .modetable th:last-child { display: none; }
+}
+
+/* ---------- controls ---------- */
+.keyrow { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; font-size: 12px; letter-spacing: 2px; }
+.keychip { min-width: 96px; font-size: 12px; letter-spacing: 1px; }
+
+/* ---------- reduced motion ---------- */
+body.reduce-motion #announce.show { animation: fadeonly 1.2s ease-out; }
+@keyframes fadeonly { 0% { opacity: 0; } 15% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+body.reduce-motion #stagecard.show #stagecard-name,
+body.reduce-motion #stagecard.show #stagecard-sub { animation: fadeonly 3s ease-out; }
+body.reduce-motion .mbtn:hover { transform: none; }
+body.reduce-motion #zonemeter.ready #zonefill,
+body.reduce-motion .jnode.current { animation: none; }
+body.reduce-motion #board { transition: none; }

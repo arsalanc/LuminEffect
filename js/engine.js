@@ -8,6 +8,20 @@ const VISIBLE_ROWS = 20;
 const HIDDEN_ROWS = 2;
 const ROWS = VISIBLE_ROWS + HIDDEN_ROWS;
 const ZONE_CELL = 9; // sentinel value for frozen zone rows
+const DARK_CELL = 8; // purify mode: corrupted garbage cells
+
+// Small seeded PRNG (mulberry32) so a daily challenge deals everyone the
+// same pieces and the same events.
+function seededRandom(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 const PIECES = {
   I: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
@@ -60,8 +74,10 @@ function rotateCCW(m) { return rotateCW(rotateCW(rotateCW(m))); }
 
 class Tetris {
   // events: an object of optional callbacks the UI layer subscribes to.
-  constructor(events = {}) {
+  // opts.seed: deal pieces from a seeded RNG instead of Math.random.
+  constructor(events = {}, opts = {}) {
     this.ev = events;
+    this.rng = opts.seed != null ? seededRandom(opts.seed) : Math.random;
     this.reset();
   }
 
@@ -87,7 +103,11 @@ class Tetris {
     this.lastKickIndex = 0;
     this.softDropping = false;
     this.gravityOverride = null; // zen mode pins the speed
-    this.stats = { single: 0, double: 0, triple: 0, tetris: 0, tspin: 0, perfect: 0, maxCombo: 0, maxZone: 0 };
+    this.gravityScale = 1;       // mystery "rush" speeds gravity up
+    this.softDropFactor = 20;    // soft drop speed multiplier; >40 = instant
+    this.purified = 0;           // dark cells cleared (purify mode)
+    this.garbageHole = Math.floor(this.rng() * COLS);
+    this.stats = { single: 0, double: 0, triple: 0, tetris: 0, tspin: 0, perfect: 0, maxCombo: 0, maxZone: 0, zones: 0 };
     // zone state
     this.meter = 0;          // 0..1
     this.zone = null;        // { time, total, lines } while active
@@ -99,7 +119,7 @@ class Tetris {
     if (this.bag.length === 0) {
       this.bag = [...PIECE_ORDER];
       for (let i = this.bag.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = Math.floor(this.rng() * (i + 1));
         [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
       }
     }
@@ -222,9 +242,9 @@ class Tetris {
 
   gravityDelay() {
     if (this.zone) return Infinity; // time stands still inside the zone
-    if (this.gravityOverride != null) return this.gravityOverride;
+    if (this.gravityOverride != null) return this.gravityOverride / this.gravityScale;
     const l = Math.min(this.level, 20);
-    return Math.pow(0.8 - (l - 1) * 0.007, l - 1);
+    return Math.pow(0.8 - (l - 1) * 0.007, l - 1) / this.gravityScale;
   }
 
   update(dt) {
@@ -237,7 +257,10 @@ class Tetris {
 
     // gravity
     let delay = this.gravityDelay();
-    if (this.softDropping) delay = Math.min(delay / 20, 0.055);
+    if (this.softDropping) {
+      const f = this.softDropFactor;
+      delay = f > 40 ? 0 : Math.min(delay / f, 1.1 / f); // 0 = sonic drop to the floor
+    }
     this.gravityAcc += dt;
     while (this.gravityAcc >= delay) {
       this.gravityAcc -= delay;
@@ -323,6 +346,9 @@ class Tetris {
       return;
     }
 
+    // dark cells in cleared rows are purified, zone or not
+    for (const y of rows) this.purified += this.grid[y].filter(v => v === DARK_CELL).length;
+
     if (this.zone) {
       // ZONE: rows sink to the bottom as frozen lines instead of vanishing
       this.grid = this.grid.filter((r, i) => !rows.includes(i));
@@ -394,6 +420,7 @@ class Tetris {
     const total = 4 + this.meter * 14; // 30% meter ≈ 8s, full ≈ 18s
     this.zone = { time: total, total, lines: 0 };
     this.meter = 0;
+    this.stats.zones++;
     if (this.ev.onZoneStart) this.ev.onZoneStart(total);
     return true;
   }
@@ -418,6 +445,41 @@ class Tetris {
     this.stats.maxZone = Math.max(this.stats.maxZone, cleared);
     const name = cleared > 0 ? (ZONE_NAMES[Math.min(cleared, 20)] || "ULTIMATRIS") : "";
     if (this.ev.onZoneEnd) this.ev.onZoneEnd({ lines: cleared, points: pts, name });
+  }
+
+  // Push rows of garbage up from the floor, each with one hole. The hole
+  // mostly stays put so garbage can be dug through with I pieces.
+  addGarbage(n, value = DARK_CELL) {
+    if (this.over || this.zone || n <= 0) return;
+    let overflow = false;
+    for (let i = 0; i < n; i++) {
+      if (this.grid[0].some(v => v)) overflow = true;
+      this.grid.shift();
+      if (this.rng() < 0.3) this.garbageHole = Math.floor(this.rng() * COLS);
+      const row = new Array(COLS).fill(value);
+      row[this.garbageHole] = 0;
+      this.grid.push(row);
+    }
+    // the falling piece rides up with the floor rather than being buried
+    if (this.cur) {
+      let lift = 0;
+      while (lift < n && this._collides(this.cur.m, this.cur.x, this.cur.y)) { this.cur.y--; lift++; }
+      if (this._collides(this.cur.m, this.cur.x, this.cur.y)) overflow = true;
+    }
+    if (overflow) { if (this.ev.onTopOut) this.ev.onTopOut(); else this.over = true; }
+  }
+
+  // Remove the bottom n rows outright (a mystery-mode blessing)
+  removeBottomRows(n) {
+    if (this.zone) return 0;
+    let removed = 0;
+    for (let i = 0; i < n; i++) {
+      if (this.grid[ROWS - 1].every(v => !v)) break;
+      this.grid.pop();
+      this.grid.unshift(new Array(COLS).fill(0));
+      removed++;
+    }
+    return removed;
   }
 
   // Zen mode: gently wipe the board instead of dying

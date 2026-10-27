@@ -130,26 +130,45 @@ const AudioSys = (() => {
   }
 
   // Synthetic room: stereo noise with an exponential tail that darkens as
-  // it decays, like air absorbing the highs.
+  // it decays, like air absorbing the highs. Built a quarter-second at a
+  // time across timer ticks (a 6s room is ~600k samples, a visible hitch
+  // if done in one go mid-game), cached per size, and capped at 4s — past
+  // that the tail is under -25dB and only costs the audio thread.
+  const irCache = new Map();
+  let irJob = 0;
   function setRoom(seconds, wet) {
-    const key = seconds.toFixed(2);
-    if (irKey !== key) {
-      irKey = key;
-      const rate = ctx.sampleRate, len = Math.floor(rate * seconds);
-      const pre = Math.floor(rate * 0.018);
-      const buf = ctx.createBuffer(2, len, rate);
-      for (let ch = 0; ch < 2; ch++) {
-        const d = buf.getChannelData(ch);
-        let lp = 0;
-        for (let i = pre; i < len; i++) {
-          const k = i / len;
-          lp += ((Math.random() * 2 - 1) - lp) * (0.92 - 0.8 * k);
-          d[i] = lp * Math.pow(1 - k, 2.6);
-        }
-      }
-      reverb.buffer = buf;
-    }
     revOut.gain.setTargetAtTime(wet, ctx.currentTime, 0.5);
+    const key = seconds.toFixed(2);
+    if (irKey === key) return;
+    irKey = key;
+    if (irCache.has(key)) { reverb.buffer = irCache.get(key); return; }
+    const job = ++irJob;
+    const rate = ctx.sampleRate;
+    const full = Math.floor(rate * seconds);
+    const len = Math.min(full, Math.floor(rate * 4));
+    const buf = ctx.createBuffer(2, len, rate);
+    const chans = [buf.getChannelData(0), buf.getChannelData(1)];
+    const lp = [0, 0];
+    const chunk = Math.floor(rate * 0.25);
+    let i = Math.floor(rate * 0.018); // pre-delay
+    (function work() {
+      if (job !== irJob) return; // a newer room superseded this one
+      const end = Math.min(len, i + chunk);
+      for (let ch = 0; ch < 2; ch++) {
+        const d = chans[ch];
+        let l = lp[ch];
+        for (let j = i; j < end; j++) {
+          const k = j / full;
+          l += ((Math.random() * 2 - 1) - l) * (0.92 - 0.8 * k);
+          const fadeOut = j > len * 0.9 ? (len - j) / (len * 0.1) : 1; // no click where the cap cuts
+          d[j] = l * Math.pow(1 - k, 2.6) * fadeOut;
+        }
+        lp[ch] = l;
+      }
+      i = end;
+      if (i < len) setTimeout(work, 0);
+      else { irCache.set(key, buf); reverb.buffer = buf; }
+    })();
   }
 
   function syncDelay(tc = 0.05) {
@@ -275,12 +294,8 @@ const AudioSys = (() => {
   }
 
   function hat(when, vol = 0.02, p = 0) {
-    const len = Math.floor(ctx.sampleRate * 0.05);
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
     const src = ctx.createBufferSource();
-    src.buffer = buf;
+    src.buffer = noiseBuf(0.05);
     const f = ctx.createBiquadFilter();
     f.type = "highpass"; f.frequency.value = 6500;
     const g = ctx.createGain(); g.gain.value = vol;
@@ -510,11 +525,18 @@ const AudioSys = (() => {
     return Math.max(now, anchorTime + k * g);
   }
 
-  function noiseBuf(dur) {
+  // noise is generated once per length and reused: hats, locks and drops
+  // fire constantly and allocating a fresh buffer each time feeds the GC
+  const noiseCache = new Map();
+  function noiseBuf(dur, decay = true) {
+    const key = dur + (decay ? "d" : "f");
+    let buf = noiseCache.get(key);
+    if (buf) return buf;
     const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    buf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (decay ? 1 - i / len : 1);
+    noiseCache.set(key, buf);
     return buf;
   }
 
@@ -535,12 +557,8 @@ const AudioSys = (() => {
   function sweep(dur, f0, f1, vol, opts = { rev: 0.6, dly: 0.3 }) {
     if (!ctx || !enabled || ctx.state !== "running") return;
     const t = ctx.currentTime;
-    const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     const src = ctx.createBufferSource();
-    src.buffer = buf;
+    src.buffer = noiseBuf(dur, false);
     const f = ctx.createBiquadFilter();
     f.type = "bandpass"; f.Q.value = 1.4;
     f.frequency.setValueAtTime(f0, t);

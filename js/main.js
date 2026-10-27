@@ -1,6 +1,7 @@
 // ============ GAME ORCHESTRATION ============
-// Wires the engine, audio and FX together: modes (journey / classic / zen),
-// input with DAS/ARR, board rendering, HUD, announcements and menus.
+// Wires the engine, audio and FX together: modes (journey / classic /
+// sprint / zen and the effect modes), rebindable input with DAS/ARR, board
+// rendering, HUD, announcements, menus, stats and accessibility options.
 
 (() => {
   const $ = id => document.getElementById(id);
@@ -19,7 +20,7 @@
   let game = null;
   let fx = new BoardFX();
   let state = "menu"; // menu | mapselect | playing | paused | over | transition
-  let mode = null;    // journey | classic | zen
+  let mode = null;    // journey | classic | sprint | zen | ultra | purify | mystery | daily
   let elapsed = 0;
   let zoneVis = 0;    // eased 0..1 for zone tint
   let intensityVis = 0; // eased 0..1 danger/level intensity
@@ -28,23 +29,31 @@
   let jIndex = 0;     // index into JOURNEY_NODES for the stage being played
   let stagePhase = 0; // journey mid-stage phase: 0 calm, 1 build, 2 climax
   let transitionTimer = 0;
+  // effect-mode state: garbage timer, mystery event timer + active effect
+  let ms = null;      // { garbageT, eventT, active: { ev, left } | null, rng, lastId, daily }
 
   const curNode = () => JOURNEY_NODES[jIndex];
+
+  const TIMED_MODES = new Set(["sprint", "purify"]);
 
   // ---------- persistence ----------
   const store = {
     get scores() { try { return JSON.parse(localStorage.getItem("lumineffect") || "{}"); } catch (e) { return {}; } },
     save(m, value) {
       const s = this.scores;
-      // sprint records a time — lower is better; everything else is a score
-      const better = m === "sprint" ? (!s[m] || value < s[m]) : (!s[m] || value > s[m]);
+      // sprint and purify record a time — lower is better; everything else is a score
+      const better = TIMED_MODES.has(m) ? (!s[m] || value < s[m]) : (!s[m] || value > s[m]);
       if (better) { s[m] = value; localStorage.setItem("lumineffect", JSON.stringify(s)); }
       return better;
     },
   };
 
   // ---------- settings ----------
-  const SETTINGS_DEFAULTS = { das: 150, arr: 33, volume: 70, ghost: true, quantize: true, vibrate: true, zenSpeed: 1 };
+  const prefersCalm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const SETTINGS_DEFAULTS = {
+    das: 150, arr: 33, sdf: 20, volume: 70, ghost: true, quantize: true, vibrate: true, fx: "auto",
+    patterns: false, reduceMotion: prefersCalm, zenSpeed: 1,
+  };
   const settings = Object.assign(
     {}, SETTINGS_DEFAULTS,
     (() => { try { return JSON.parse(localStorage.getItem("lumineffect-settings") || "{}"); } catch (e) { return {}; } })()
@@ -52,6 +61,15 @@
   function saveSettings() { localStorage.setItem("lumineffect-settings", JSON.stringify(settings)); }
   AudioSys.setVolume(settings.volume / 100);
   AudioSys.setQuantize(settings.quantize);
+  let keyBinds = Controls.load();
+  let keyLookup = Controls.lookup(keyBinds);
+
+  // reduced motion: no shake, no full-screen flashes, a calmer world
+  function shake(v) { if (!settings.reduceMotion) fx.addShake(v); }
+  function applyMotion() {
+    document.body.classList.toggle("reduce-motion", settings.reduceMotion);
+    Background.setCalm(settings.reduceMotion);
+  }
 
   // haptics: phones feel the drops, clears and zone (no-op where unsupported)
   function buzz(pattern) {
@@ -66,9 +84,10 @@
 
   // ---------- announcements ----------
   let announceTimer = null;
-  function announce(text, sub = "") {
+  function announce(text, sub = "", tone = "") {
     const el = $("announce");
     el.innerHTML = text + (sub ? `<span class="sub">${sub}</span>` : "");
+    el.className = tone; // "good" / "bad" tint for mystery events
     el.classList.remove("show");
     void el.offsetWidth; // restart animation
     el.classList.add("show");
@@ -76,6 +95,7 @@
     announceTimer = setTimeout(() => el.classList.remove("show"), 1300);
   }
 
+  let stageCardTimer = null;
   function showStageCard(name, sub) {
     const card = $("stagecard");
     $("stagecard-name").textContent = name;
@@ -83,7 +103,13 @@
     card.classList.remove("hidden", "show");
     void card.offsetWidth;
     card.classList.add("show");
-    setTimeout(() => card.classList.add("hidden"), 3000);
+    clearTimeout(stageCardTimer);
+    stageCardTimer = setTimeout(hideStageCard, 3000);
+  }
+  // also called on leaving a run early, so the card never lingers over menus
+  function hideStageCard() {
+    clearTimeout(stageCardTimer);
+    $("stagecard").classList.add("hidden");
   }
 
   // board-space pixel → screen pixel, so world FX can erupt from the well
@@ -93,7 +119,7 @@
   }
 
   // ---------- engine events ----------
-  function makeGame() {
+  function makeGame(seed = null) {
     const g = new Tetris({
       onLock(cur, dropDist) {
         AudioSys.lock();
@@ -123,7 +149,7 @@
         if (info.b2b) AudioSys.b2b();
         if (info.perfect) AudioSys.perfect();
         Background.beat(0.25 + info.lines * 0.15);
-        fx.addShake(info.lines * 2 + (info.lines === 4 ? 4 : 0));
+        shake(info.lines * 2 + (info.lines === 4 ? 4 : 0));
         // the cleared rows' colors erupt out of the well into the world
         const midRow = info.rows.reduce((a, r) => a + r, 0) / info.rows.length - HIDDEN_ROWS;
         const burstCols = [...new Set(info.rowData.flat().filter(v => v).map(pieceColor))];
@@ -155,8 +181,10 @@
         AudioSys.zoneStart();
         AudioSys.setZoneTempo(true); // time dilates: the groove drops to half speed
         $("boardwrap").classList.add("zone-active");
-        $("zoneflash").classList.remove("flash"); void $("zoneflash").offsetWidth;
-        $("zoneflash").classList.add("flash");
+        if (!settings.reduceMotion) {
+          $("zoneflash").classList.remove("flash"); void $("zoneflash").offsetWidth;
+          $("zoneflash").classList.add("flash");
+        }
         announce("THE ZONE", "time stands still");
         buzz([20, 60, 40]);
         Background.burst(0.5, ["#ffffff", Background.theme.accent], boardPoint(BW / 2, BH / 2));
@@ -165,7 +193,7 @@
         Background.beat(0.4 + Math.min(0.6, count * 0.04));
         AudioSys.zoneLine(count); // pitch climbs with every banked line
         buzz(10);
-        fx.addShake(1 + Math.min(6, count * 0.4));
+        shake(1 + Math.min(6, count * 0.4));
         // sparks freeze mid-air inside the zone, then fly when it ends
         Background.burst(0.15, ["#dfe8ff", Background.theme.accent], boardPoint(BW / 2, BH - count * CELL));
       },
@@ -175,7 +203,7 @@
         if (res.lines > 0) {
           AudioSys.zoneEnd(res.lines);
           buzz([40, 50, 70, 50, 100]);
-          fx.addShake(4 + res.lines);
+          shake(4 + res.lines);
           Background.beat(1);
           Background.burst(Math.min(2, 0.8 + res.lines / 10),
             ["#ffffff", Background.theme.accent, ...Background.theme.pieceColors.slice(0, 3)],
@@ -193,21 +221,22 @@
         if (mode === "zen") {
           announce("REBUILD", "the board is yours again");
           Background.beat(0.8);
-          fx.addShake(6);
+          shake(6);
           buzz([40, 60, 40]);
           g.zenWipe();
         } else {
           gameOver(false);
         }
       },
-    });
+    }, { seed });
     return g;
   }
 
   // ---------- modes ----------
   function currentTheme() {
     if (mode === "journey") return themeById(curNode().theme);
-    if (mode === "classic") return THEMES[Math.floor((game.level - 1) / 3) % THEMES.length];
+    // classic tours every map across its 15 levels
+    if (mode === "classic") return THEMES[Math.min(THEMES.length - 1, Math.floor((game.level - 1) * THEMES.length / 15))];
     return zenTheme;
   }
   let zenTheme = THEMES[0];
@@ -240,17 +269,97 @@
       if (game.lines >= 40) { gameOver(true); return; }
     } else if (mode === "classic") {
       if (game.lines >= 150) { gameOver(true); return; }
-      const newLevel = Math.min(15, Math.floor(game.lines / 10) + 1);
-      if (newLevel > game.level) {
-        game.level = newLevel;
-        AudioSys.levelUp();
-        announce(`LEVEL ${newLevel}`);
-        applyTheme();
-      }
+      levelUpEvery10();
+    } else if (mode === "purify") {
+      if (game.purified >= EFFECT_MODES.purify.target) { gameOver(true); return; }
+      // speed creeps up as the dark is cleansed
+      const lvl = 2 + Math.floor(game.purified / 15);
+      if (lvl > game.level) { game.level = lvl; AudioSys.levelUp(); announce(`LEVEL ${lvl}`); }
+    } else if (mode === "ultra" || mode === "mystery" || mode === "daily") {
+      levelUpEvery10();
     }
   }
 
+  function levelUpEvery10() {
+    const newLevel = Math.min(15, Math.floor(game.lines / 10) + 1);
+    if (newLevel > game.level) {
+      game.level = newLevel;
+      AudioSys.levelUp();
+      announce(`LEVEL ${newLevel}`);
+      applyTheme();
+    }
+  }
+
+  // ---------- effect modes ----------
+  const isEffectMode = m => m in EFFECT_MODES;
+  const hasRising = () => mode === "purify" || (mode === "daily" && ms.daily.twist === "rising");
+  const hasMystery = () => mode === "mystery" || (mode === "daily" && ms.daily.twist === "mystery");
+
+  // timers, rising garbage and mystery events; runs every frame of play
+  function updateMode(dt) {
+    if (!ms || !game || game.over) return;
+    const def = EFFECT_MODES[mode];
+    if (def && def.timeLimit && elapsed >= def.timeLimit) { gameOver(true); return; }
+    if (game.zone) return; // time stands still in the zone — the rules do too
+    if (hasRising()) {
+      ms.garbageT += dt;
+      const every = mode === "purify" ? purifyInterval(game.purified) : 7;
+      if (ms.garbageT >= every) {
+        ms.garbageT = 0;
+        game.addGarbage(1);
+        AudioSys.lock();
+        shake(1.5);
+      }
+    }
+    if (hasMystery()) {
+      if (ms.active) {
+        ms.active.left -= dt;
+        if (ms.active.left <= 0) endMysteryEffect();
+      }
+      ms.eventT += dt;
+      if (ms.eventT >= EFFECT_MODES.mystery.every) { ms.eventT = 0; triggerMystery(); }
+    }
+  }
+
+  function triggerMystery() {
+    // never the same twice running, and never a second timed curse on top of one
+    const pool = MYSTERY_EVENTS.filter(e => e.id !== ms.lastId && !(ms.active && e.kind === "timed"));
+    if (!pool.length) return;
+    const ev = pool[Math.floor(ms.rng() * pool.length)];
+    ms.lastId = ev.id;
+    announce(ev.name, ev.sub, ev.good === true ? "good" : ev.good === false ? "bad" : "");
+    AudioSys.phaseShift();
+    Background.burst(0.5, [ev.good === false ? "#ff5f7a" : ev.good ? "#7dffb0" : "#c9a6ff"], boardPoint(BW / 2, BH / 2));
+    buzz([20, 40, 20]);
+    switch (ev.id) {
+      case "flip": boardCanvas.classList.add("flipped"); break;
+      case "rush": game.gravityScale = 3; break;
+      case "surge": game.addGarbage(2); break;
+      case "irain": game.queue.splice(0, 4, "I", "I", "I", "I"); break;
+      case "cleanse": game.removeBottomRows(3); break;
+      case "charge": game.meter = 1; break;
+      case "shift": {
+        const others = THEMES.filter(t => t !== zenTheme);
+        zenTheme = others[Math.floor(ms.rng() * others.length)];
+        applyTheme();
+        break;
+      }
+    }
+    if (ev.kind === "timed") ms.active = { ev, left: ev.dur };
+  }
+
+  function endMysteryEffect() {
+    if (!ms || !ms.active) return;
+    const id = ms.active.ev.id;
+    ms.active = null;
+    if (id === "flip") boardCanvas.classList.remove("flipped");
+    if (id === "rush" && game) game.gravityScale = 1;
+  }
+  const effectOn = id => !!(ms && ms.active && ms.active.ev.id === id);
+
   function startGame(m, themeChoice = null, nodeIndex = 0) {
+    endMysteryEffect();
+    boardCanvas.classList.remove("flipped");
     mode = m;
     jIndex = nodeIndex;
     elapsed = 0;
@@ -260,7 +369,18 @@
     Background.setIntensity(0);
     flashRows = [];
     fx = new BoardFX();
-    game = makeGame();
+    const daily = m === "daily" ? dailyInfo() : null;
+    game = makeGame(daily ? daily.seed : null);
+    game.softDropFactor = settings.sdf;
+    ms = isEffectMode(m) ? {
+      garbageT: 0, eventT: 0, active: null, lastId: null, daily,
+      rng: daily ? seededRandom(daily.seed + 1) : Math.random,
+    } : null;
+    if (isEffectMode(m)) {
+      zenTheme = daily ? daily.theme : THEMES[Math.floor(Math.random() * THEMES.length)];
+      game.level = m === "purify" ? 2 : 1;
+      if (hasRising()) game.addGarbage(m === "purify" ? 4 : 2); // start with some dark to dig into
+    }
     if (m === "zen") {
       zenTheme = themeChoice || THEMES[0];
       game.level = settings.zenSpeed; // player-chosen speed, fixed for the run
@@ -272,10 +392,13 @@
     if (m === "journey") game.level = curNode().level;
     stagePhase = 0;
 
-    $("modename").textContent = m === "journey" ? curNode().name : m.toUpperCase();
-    $("goal-label").textContent = m === "journey" ? "GOAL" : m === "classic" ? "NEXT LVL" : m === "sprint" ? "LEFT" : "FLOW";
-    const th = m === "journey" ? themeById(curNode().theme)
-             : (m === "zen" || m === "sprint") ? zenTheme : THEMES[0];
+    $("modename").textContent = m === "journey" ? curNode().name
+      : daily ? `DAILY · ${DAILY_TWISTS[daily.twist].name}` : m.toUpperCase();
+    $("goal-label").textContent = {
+      journey: "GOAL", classic: "NEXT LVL", sprint: "LEFT", zen: "FLOW",
+      ultra: "TIME LEFT", daily: "TIME LEFT", purify: "PURIFIED", mystery: "NEXT EVENT",
+    }[m];
+    const th = m === "journey" ? themeById(curNode().theme) : m === "classic" ? THEMES[0] : zenTheme;
     Background.setTheme(th);
     AudioSys.setTheme(th);
     AudioSys.setPhase(m === "journey" ? 0 : 1); // journey opens calm
@@ -291,20 +414,27 @@
     if (isTouch) $("touchbar").classList.remove("hidden");
     fitLayout();
     if (m === "journey") showStageCard(curNode().name, curNode().sub);
+    else if (daily) showStageCard("DAILY " + daily.key, `${th.name.toLowerCase()} · ${DAILY_TWISTS[daily.twist].sub}`);
+    else if (isEffectMode(m)) showStageCard(EFFECT_MODES[m].name, EFFECT_MODES[m].sub);
     else showStageCard(th.name, th.sub);
     state = "playing";
   }
 
   function gameOver(victory) {
     state = "over";
+    endMysteryEffect();
+    LifetimeStats.record(mode, game, elapsed, { finished: victory, timed: TIMED_MODES.has(mode) });
     AudioSys.gameOver();
     buzz(victory ? [20, 40, 20, 40, 60] : [80, 80, 160]);
     AudioSys.stopMusic();
     $("boardwrap").classList.remove("zone-active");
     // sprint records finish time (only on completion); other modes record score
-    let isNewBest = false;
-    if (mode === "sprint") {
-      if (victory) isNewBest = store.save("sprint", Math.round(elapsed * 100) / 100);
+    let isNewBest = false, dailyRes = null;
+    if (TIMED_MODES.has(mode)) {
+      if (victory) isNewBest = store.save(mode, Math.round(elapsed * 100) / 100);
+    } else if (mode === "daily") {
+      dailyRes = DailyRecord.submit(ms.daily.key, game.score);
+      isNewBest = dailyRes.newToday;
     } else if (mode !== "journey") {
       isNewBest = store.save(mode, game.score);
     }
@@ -336,18 +466,23 @@
     $("result-title").textContent = victory
       ? (mode === "journey"
           ? (journeyDone ? "JOURNEY COMPLETE" : "STAGE CLEAR")
-          : mode === "sprint" ? "SPRINT COMPLETE" : "YOU WIN")
+          : mode === "sprint" ? "SPRINT COMPLETE"
+          : mode === "purify" ? "PURIFIED"
+          : mode === "ultra" || mode === "daily" ? "TIME UP" : "YOU WIN")
       : "GAME OVER";
+    const timed = TIMED_MODES.has(mode);
     const rows = [
-      ["SCORE", game.score.toLocaleString() + (mode !== "sprint" && isNewBest ? " ★ NEW BEST" : "")],
+      ["SCORE", game.score.toLocaleString() + (!timed && isNewBest ? " ★ NEW BEST" : "")],
       ["LINES", game.lines],
       ["LEVEL", game.level],
-      ["TIME", fmtTime(elapsed) + (mode === "sprint" && isNewBest ? " ★ NEW BEST" : "")],
+      ["TIME", fmtTime(elapsed) + (timed && isNewBest ? " ★ NEW BEST" : "")],
       ["MAX COMBO", game.stats.maxCombo],
       ["TETRISES", game.stats.tetris],
       ["T-SPINS", game.stats.tspin],
       ["BEST ZONE", game.stats.maxZone + " lines"],
     ];
+    if (mode === "purify") rows.splice(1, 0, ["PURIFIED", `${game.purified} / ${EFFECT_MODES.purify.target}`]);
+    if (dailyRes) rows.splice(1, 0, ["TODAY'S BEST", dailyRes.today.toLocaleString()], ["DAY STREAK", dailyRes.streak]);
     $("result-stats").innerHTML = rows.map(([k, v]) =>
       `<div class="rrow"><span class="dim">${k}</span><b>${v}</b></div>`).join("");
     $("results").classList.remove("hidden");
@@ -359,6 +494,8 @@
   function showJourneyMap() {
     state = "journeymap";
     jSelected = -1;
+    endMysteryEffect();
+    hideStageCard();
     AudioSys.stopMusic();
     Background.setIntensity(0);
     Background.setZone(0);
@@ -445,6 +582,8 @@
 
   function toMenu() {
     state = "menu";
+    endMysteryEffect();
+    hideStageCard();
     AudioSys.stopMusic();
     intensityVis = 0;
     AudioSys.setIntensity(0);
@@ -476,69 +615,73 @@
   function doHardDrop() {
     const gx = (game.cur.x + 1.5) * CELL;
     const gy = Math.min(BH - 4, (game.ghostY() - HIDDEN_ROWS + 1) * CELL);
-    game.hardDrop(); AudioSys.hardDrop(); fx.addShake(3); buzz(9);
+    game.hardDrop(); AudioSys.hardDrop(); shake(3); buzz(9);
     fx.burstAt(gx, Math.max(4, gy), Background.theme.accent, 8, 100);
   }
 
-  const keys = {};
+  // every horizontal move goes through here so MIRROR can flip it
+  function tryMove(dir) {
+    return game.move(effectOn("mirror") ? -dir : dir);
+  }
+
+  const held = {}; // action → currently held
   let dasTimer = 0, arrTimer = 0, dasDir = 0;
 
   window.addEventListener("keydown", e => {
+    if (rebinding) return; // the controls screen is capturing this key
     if (e.repeat) return;
     AudioSys.unlock();
-    const k = e.key;
+    const action = keyLookup[normKey(e.key)];
+    if (!action) return;
 
     if (state === "playing" || state === "transition") {
-      if (k === "ArrowLeft" || k === "ArrowRight") {
-        const dir = k === "ArrowLeft" ? -1 : 1;
-        dasDir = dir; dasTimer = 0; arrTimer = 0;
-        if (game.move(dir)) AudioSys.move();
-        keys[k] = true;
-        e.preventDefault();
-      } else if (k === "ArrowDown") {
-        game.softDropping = true; keys[k] = true; e.preventDefault();
-      } else if (k === " ") {
-        doHardDrop();
-        e.preventDefault();
-      } else if (k === "ArrowUp" || k.toLowerCase() === "x") {
-        if (game.rotate(1)) AudioSys.rotate(); e.preventDefault();
-      } else if (k.toLowerCase() === "z") {
-        if (game.rotate(-1)) AudioSys.rotate(); e.preventDefault();
-      } else if (k.toLowerCase() === "c") {
-        if (game.holdPiece()) AudioSys.hold(); e.preventDefault();
-      } else if (k === "Shift" || k === "Enter") {
-        if (game.activateZone()) e.preventDefault();
-      } else if (k.toLowerCase() === "p" || k === "Escape") {
-        state = "paused"; $("pause").classList.remove("hidden");
+      e.preventDefault();
+      held[action] = true;
+      switch (action) {
+        case "left": case "right": {
+          const dir = action === "left" ? -1 : 1;
+          dasDir = dir; dasTimer = 0; arrTimer = 0;
+          if (tryMove(dir)) AudioSys.move();
+          break;
+        }
+        case "soft": game.softDropping = true; break;
+        case "hard": doHardDrop(); break;
+        case "cw": if (game.rotate(1)) AudioSys.rotate(); break;
+        case "ccw": if (game.rotate(-1)) AudioSys.rotate(); break;
+        case "hold": if (game.holdPiece()) AudioSys.hold(); break;
+        case "zone": game.activateZone(); break;
+        case "pause": state = "paused"; $("pause").classList.remove("hidden"); break;
       }
-    } else if (state === "paused" && (k.toLowerCase() === "p" || k === "Escape")) {
+    } else if (state === "paused" && action === "pause") {
       state = "playing"; $("pause").classList.add("hidden");
     }
   });
 
   window.addEventListener("keyup", e => {
-    keys[e.key] = false;
-    if (e.key === "ArrowDown" && game) game.softDropping = false;
-    if ((e.key === "ArrowLeft" && dasDir === -1) || (e.key === "ArrowRight" && dasDir === 1)) dasDir = 0;
+    const action = keyLookup[normKey(e.key)];
+    if (!action) return;
+    held[action] = false;
+    if (action === "soft" && game) game.softDropping = false;
+    if ((action === "left" && dasDir === -1) || (action === "right" && dasDir === 1)) dasDir = 0;
   });
 
   function handleDAS(dt) {
     if (!dasDir) return;
-    const held = dasDir === -1 ? keys["ArrowLeft"] : keys["ArrowRight"];
-    if (!held) { dasDir = 0; return; }
+    const isHeld = dasDir === -1 ? held.left : held.right;
+    if (!isHeld) { dasDir = 0; return; }
     const das = settings.das / 1000, arr = settings.arr / 1000;
     dasTimer += dt;
     if (dasTimer < das) return;
     if (arr <= 0) {
       // instant: slam to the wall
       let moved = false;
-      for (let i = 0; i < COLS && game.move(dasDir); i++) moved = true;
+      for (let i = 0; i < COLS && tryMove(dasDir); i++) moved = true;
       if (moved) AudioSys.move();
     } else {
       arrTimer += dt;
       while (arrTimer >= arr) {
         arrTimer -= arr;
-        if (game.move(dasDir)) AudioSys.move();
+        if (tryMove(dasDir)) AudioSys.move();
       }
     }
   }
@@ -554,23 +697,74 @@
     c.closePath();
   }
 
-  function drawCell(c, x, y, size, color, alpha = 1, glow = 0) {
-    c.globalAlpha = alpha;
-    if (glow > 0) { c.shadowColor = color; c.shadowBlur = glow; }
-    const pad = 1.5;
-    roundRect(c, x + pad, y + pad, size - pad * 2, size - pad * 2, 4);
-    const g = c.createLinearGradient(x, y, x, y + size);
-    g.addColorStop(0, color);
-    g.addColorStop(1, shade(color, -0.35));
-    c.fillStyle = g;
+  // Cells are pre-rendered once per (color, size, glow) into small sprites:
+  // gradients and shadowBlur are far too slow to redo for 200 cells a frame.
+  const spriteCache = new Map();
+  function cellSprite(color, size, glow, pat) {
+    const g = glow > 0 ? Math.min(24, Math.max(3, Math.round(glow / 3) * 3)) : 0;
+    const key = `${color}|${size}|${g}|${pat}`;
+    let spr = spriteCache.get(key);
+    if (spr) return spr;
+    if (spriteCache.size > 400) spriteCache.clear();
+    const pad = g ? g + 2 : 0;
+    const full = size + pad * 2;
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = Math.ceil(full * DPR);
+    const c = cv.getContext("2d");
+    c.scale(DPR, DPR);
+    if (g) { c.shadowColor = color; c.shadowBlur = g; }
+    const inset = 1.5, x = pad, y = pad;
+    roundRect(c, x + inset, y + inset, size - inset * 2, size - inset * 2, 4);
+    const grad = c.createLinearGradient(x, y, x, y + size);
+    grad.addColorStop(0, color);
+    grad.addColorStop(1, shade(color, -0.35));
+    c.fillStyle = grad;
     c.fill();
+    c.shadowBlur = 0;
     // inner highlight
-    c.globalAlpha = alpha * 0.35;
-    roundRect(c, x + pad + 2, y + pad + 2, size - pad * 2 - 4, (size - pad * 2) * 0.35, 3);
+    c.globalAlpha = 0.35;
+    roundRect(c, x + inset + 2, y + inset + 2, size - inset * 2 - 4, (size - inset * 2) * 0.35, 3);
     c.fillStyle = "#ffffff";
     c.fill();
+    if (pat >= 0) drawGlyph(c, pat, x + size / 2, y + size / 2, size);
+    spr = { cv, pad, full };
+    spriteCache.set(key, spr);
+    return spr;
+  }
+
+  // Block patterns: a distinct glyph per piece type so pieces can be told
+  // apart without relying on color. Dark (purify) cells always carry an X.
+  function drawGlyph(c, pat, cx, cy, size) {
+    const r = size * 0.17;
+    c.globalAlpha = 0.6;
+    c.strokeStyle = c.fillStyle = pat === 7 ? "#d9c8ff" : "rgba(10,14,30,.85)";
+    c.lineWidth = Math.max(1.5, size * 0.07);
+    c.lineCap = "round";
+    c.beginPath();
+    switch (pat) {
+      case 0: c.moveTo(cx - r, cy); c.lineTo(cx + r, cy); c.stroke(); break;                // I: bar
+      case 1: c.strokeRect(cx - r * 0.8, cy - r * 0.8, r * 1.6, r * 1.6); break;           // O: square
+      case 2: c.moveTo(cx, cy - r); c.lineTo(cx + r, cy + r * 0.8); c.lineTo(cx - r, cy + r * 0.8); c.closePath(); c.fill(); break; // T: triangle
+      case 3: c.moveTo(cx - r, cy + r); c.lineTo(cx + r, cy - r); c.stroke(); break;       // S: /
+      case 4: c.moveTo(cx - r, cy - r); c.lineTo(cx + r, cy + r); c.stroke(); break;       // Z: \
+      case 5: c.arc(cx, cy, r * 0.6, 0, Math.PI * 2); c.fill(); break;                     // J: dot
+      case 6: c.arc(cx, cy, r * 0.85, 0, Math.PI * 2); c.stroke(); break;                  // L: ring
+      case 7: c.moveTo(cx - r, cy - r); c.lineTo(cx + r, cy + r); c.moveTo(cx + r, cy - r); c.lineTo(cx - r, cy + r); c.stroke(); break; // dark: X
+    }
     c.globalAlpha = 1;
-    c.shadowBlur = 0;
+  }
+
+  // which glyph a cell value gets (-1 = none)
+  function patOf(v) {
+    if (v === DARK_CELL) return 7;
+    return settings.patterns && v >= 1 && v <= 7 ? v - 1 : -1;
+  }
+
+  function drawCell(c, x, y, size, color, alpha = 1, glow = 0, pat = -1) {
+    const spr = cellSprite(color, size, glow, pat);
+    c.globalAlpha = alpha;
+    c.drawImage(spr.cv, x - spr.pad, y - spr.pad, spr.full, spr.full);
+    c.globalAlpha = 1;
   }
 
   function shade(hex, k) {
@@ -585,19 +779,37 @@
   function pieceColor(v) {
     const th = Background.theme;
     if (v === ZONE_CELL) return "#e8ecff";
-    return th.pieceColors[v - 1] || "#888";
+    if (v === DARK_CELL) return "#4d3d6b";
+    return th.pieceColors[v - 1] || "#888888";
   }
 
   function drawMatrixOn(c, m, type, cw, ox, oy, color) {
+    const pat = patOf(PIECE_ORDER.indexOf(type) + 1);
     for (let y = 0; y < m.length; y++)
       for (let x = 0; x < m[y].length; x++)
-        if (m[y][x]) drawCell(c, ox + x * cw, oy + y * cw, cw, color, 1, 6);
+        if (m[y][x]) drawCell(c, ox + x * cw, oy + y * cw, cw, color, 1, 6, pat);
   }
 
+  const previewKeys = new Map();
   function drawPreview(c, canvas, types) {
-    c.clearRect(0, 0, canvas.width, canvas.height);
     const th = Background.theme;
+    // the queue only changes on spawn/hold, so skip identical redraws
+    const blind = canvas === nextCanvas && effectOn("blind");
+    const key = `${types.join()}|${th.id}|${canvas.width}|${settings.patterns}|${blind}`;
+    if (previewKeys.get(canvas) === key) return;
+    previewKeys.set(canvas, key);
+    c.clearRect(0, 0, canvas.width, canvas.height);
     const horiz = canvas.width > canvas.height; // portrait phones lay the queue out sideways
+    if (blind) {
+      // BLINDFOLD: the queue is hidden behind question marks
+      c.fillStyle = "rgba(220,230,255,.35)";
+      c.font = "bold 22px system-ui, sans-serif";
+      c.textAlign = "center"; c.textBaseline = "middle";
+      for (let i = 0; i < 5; i++) {
+        c.fillText("?", horiz ? i * 62 + 31 : canvas.width / 2, horiz ? canvas.height / 2 : i * 62 + 33);
+      }
+      return;
+    }
     types.forEach((t, i) => {
       if (!t) return;
       const m = PIECES[t];
@@ -642,24 +854,28 @@
 
     if (!game) { bctx.restore(); return; }
 
-    // locked cells
+    // locked cells; under FOG only a lantern around the falling piece shows them
+    const fog = effectOn("fog") && game.cur;
+    const fcx = fog ? game.cur.x + game.cur.m.length / 2 : 0, fcy = fog ? game.cur.y + game.cur.m.length / 2 : 0;
     for (let y = HIDDEN_ROWS; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++) {
         const v = game.grid[y][x];
         if (!v) continue;
         const py = (y - HIDDEN_ROWS) * CELL;
+        const lit = fog ? Math.max(0.05, Math.min(1, 1 - (Math.hypot(x + 0.5 - fcx, y + 0.5 - fcy) - 2.5) / 2.5)) : 1;
         if (v === ZONE_CELL) {
           // frozen rows shimmer faster and glow hotter as tension builds
           const shimmer = 0.75 + 0.25 * Math.sin(performance.now() / (200 - zt * 130) + y);
-          drawCell(bctx, x * CELL, py, CELL, "#dfe8ff", shimmer, 10 + zt * 14);
+          drawCell(bctx, x * CELL, py, CELL, "#dfe8ff", shimmer * lit, 10 + zt * 14);
         } else {
-          drawCell(bctx, x * CELL, py, CELL, pieceColor(v), 1, zoneVis > 0.3 ? 2 : 0);
+          drawCell(bctx, x * CELL, py, CELL, pieceColor(v), lit, zoneVis > 0.3 ? 2 : 0, patOf(v));
         }
       }
     }
 
     if (game.cur && !game.over && state !== "over") {
       const color = th.pieceColors[PIECE_ORDER.indexOf(game.cur.type)];
+      const curPat = patOf(PIECE_ORDER.indexOf(game.cur.type) + 1);
       // ghost
       const gy = game.ghostY();
       if (settings.ghost)
@@ -681,7 +897,7 @@
         for (let x = 0; x < game.cur.m[y].length; x++)
           if (game.cur.m[y][x]) {
             const py = (game.cur.y + y - HIDDEN_ROWS) * CELL;
-            if (py >= -CELL) drawCell(bctx, (game.cur.x + x) * CELL, py, CELL, color, 1, 9 + be * 9);
+            if (py >= -CELL) drawCell(bctx, (game.cur.x + x) * CELL, py, CELL, color, 1, 9 + be * 9, curPat);
           }
     }
 
@@ -690,7 +906,7 @@
       if (f.t < 0) continue;
       const k = 1 - f.t / 0.35;
       if (k <= 0) continue;
-      bctx.globalAlpha = k * 0.6; // soft flash — the shatter carries the moment
+      bctx.globalAlpha = k * (settings.reduceMotion ? 0.2 : 0.6); // soft flash — the shatter carries the moment
       bctx.fillStyle = "#ffffff";
       bctx.fillRect(0, f.y, BW, CELL);
       bctx.globalAlpha = 1;
@@ -718,33 +934,51 @@
 
     bctx.restore();
 
-    // outer halo of the well swells on the beat
-    $("boardwrap").style.setProperty("--beatpx", (be * 22).toFixed(1) + "px");
-    // near the top, the well's rim throbs red with the heartbeat
+    // outer halo of the well swells on the beat; near the top, its rim
+    // throbs red with the heartbeat. Both are opacity-only layers, so the
+    // browser can animate them without repainting the well.
     const d = (dangerVis - 0.3) / 0.7;
-    $("boardwrap").style.borderColor = d > 0 && !game.zone
-      ? `rgba(255,80,100,${(0.25 + d * 0.5 * (0.4 + be * 0.6)).toFixed(3)})` : "";
+    const calm = settings.reduceMotion; // no pulsing light: a soft halo, a steady rim
+    setStyle("beathalo", "opacity", (be * (calm ? 0.25 : 0.9)).toFixed(2));
+    setStyle("dangerrim", "opacity", d > 0 && !game.zone ? (0.35 + d * 0.65 * (calm ? 0.7 : 0.4 + be * 0.6)).toFixed(2) : "0");
 
     // side panels
     drawPreview(hctx, holdCanvas, [game.hold]);
     drawPreview(nctx, nextCanvas, game.queue.slice(0, 5));
 
-    // HUD
-    $("score").textContent = game.score.toLocaleString();
-    $("level").textContent = game.level;
-    $("lines").textContent = game.lines;
-    $("time").textContent = fmtTime(elapsed);
-    if (mode === "journey") $("goal").textContent = `${game.lines} / ${curNode().goal}`;
-    else if (mode === "classic") $("goal").textContent = game.level >= 15 ? "MAX" : `${10 - (game.lines % 10)} lines`;
-    else if (mode === "sprint") $("goal").textContent = `${Math.max(0, 40 - game.lines)} lines`;
-    else $("goal").textContent = "∞";
+    // HUD — DOM writes only when a value actually changes
+    setText("score", game.score.toLocaleString());
+    setText("level", game.level);
+    setText("lines", game.lines);
+    setText("time", fmtTime(elapsed));
+    if (mode === "journey") setText("goal", `${game.lines} / ${curNode().goal}`);
+    else if (mode === "classic") setText("goal", game.level >= 15 ? "MAX" : `${10 - (game.lines % 10)} lines`);
+    else if (mode === "sprint") setText("goal", `${Math.max(0, 40 - game.lines)} lines`);
+    else if (mode === "ultra" || mode === "daily") setText("goal", fmtTime(Math.max(0, EFFECT_MODES[mode].timeLimit - elapsed + 0.999)));
+    else if (mode === "purify") setText("goal", `${game.purified} / ${EFFECT_MODES.purify.target}`);
+    else if (mode === "mystery") setText("goal", ms.active ? ms.active.ev.name : `${Math.ceil(EFFECT_MODES.mystery.every - ms.eventT)}s`);
+    else setText("goal", "∞");
 
-    // zone meter
-    const fill = game.zone
-      ? (game.zone.time / game.zone.total) * 100
-      : game.meter * 100;
-    $("zonefill").style.height = fill + "%";
-    $("zonemeter").classList.toggle("ready", game.zoneReady());
+    // zone meter (a transform, not a height, so it never triggers layout)
+    const fill = game.zone ? game.zone.time / game.zone.total : game.meter;
+    setStyle("zonefill", "transform", `scaleY(${Math.max(0, Math.min(1, fill)).toFixed(3)})`);
+    const ready = game.zoneReady();
+    if (ready !== lastZoneReady) { lastZoneReady = ready; $("zonemeter").classList.toggle("ready", ready); }
+  }
+
+  const domCache = {};
+  let lastZoneReady = null;
+  function setText(id, v) {
+    v = String(v);
+    if (domCache[id] === v) return;
+    domCache[id] = v;
+    $(id).textContent = v;
+  }
+  function setStyle(id, prop, v) {
+    const k = id + "." + prop;
+    if (domCache[k] === v) return;
+    domCache[k] = v;
+    $(id).style[prop] = v;
   }
 
   function stackTop() {
@@ -756,6 +990,7 @@
   let last = performance.now();
   function loop(now) {
     requestAnimationFrame(loop);
+    watchFrames((now - last) / 1000);
     let dt = Math.min((now - last) / 1000, 0.05);
     last = now;
 
@@ -765,6 +1000,7 @@
       elapsed += dt;
       handleDAS(dt);
       game.update(dt);
+      updateMode(dt);
     } else if (state === "transition") {
       transitionTimer -= dt;
       handleDAS(dt);
@@ -833,6 +1069,45 @@
   const isTouch = matchMedia("(pointer: coarse)").matches;
   if (isTouch) document.body.classList.add("touch");
 
+  // ---------- effects quality ----------
+  // 2 = full (frosted-glass blur), 1 = balanced (no backdrop blur — by far
+  // the costliest effect, since the animated background makes the browser
+  // re-blur every panel every frame), 0 = low (also a half-res background
+  // and fewer particles). AUTO starts high on desktop, balanced on touch,
+  // and steps down when frames run long during play; the tier it settles on
+  // is remembered for next time.
+  const FX_LEVELS = { high: 2, balanced: 1, low: 0 };
+  const FX_AUTO_KEY = "lumineffect-fxauto";
+  const autoDefault = isTouch ? 1 : 2;
+  let autoLevel = (() => {
+    try { const v = localStorage.getItem(FX_AUTO_KEY); return v === null ? autoDefault : Math.min(autoDefault, +v); } catch (e) { return autoDefault; }
+  })();
+  let slowTime = 0;
+
+  function fxLevel() { return settings.fx === "auto" ? autoLevel : FX_LEVELS[settings.fx] ?? 2; }
+
+  function applyQuality() {
+    const q = fxLevel();
+    document.body.classList.toggle("fx-noblur", q < 2);
+    Background.setQuality(q);
+    const name = ["low", "balanced", "high"][q];
+    $("fx-val").textContent = settings.fx === "auto" ? `auto · ${name}` : name;
+  }
+
+  function watchFrames(raw) {
+    if (settings.fx !== "auto" || autoLevel === 0) return;
+    if (state !== "playing" && state !== "transition") { slowTime = 0; return; }
+    if (raw > 0.25) return; // a tab switch or one-off hitch, not sustained load
+    // count time spent in frames slower than ~45fps; good frames pay it back
+    slowTime = raw > 1 / 45 ? slowTime + raw : Math.max(0, slowTime - raw * 0.5);
+    if (slowTime > 2) {
+      slowTime = 0;
+      autoLevel--;
+      try { localStorage.setItem(FX_AUTO_KEY, autoLevel); } catch (e) {}
+      applyQuality();
+    }
+  }
+
   function fitLayout() {
     const portrait = isTouch && window.innerHeight > window.innerWidth;
     document.body.classList.toggle("portrait", portrait);
@@ -882,8 +1157,8 @@
         else if (dy > cp * 0.55 && dy > Math.abs(dx)) { tp.mode = "v"; tp.ly = tp.y0; }
       }
       if (tp.mode === "h") {
-        while (e.clientX - tp.lx >= cp) { if (game.move(1)) AudioSys.move(); tp.lx += cp; }
-        while (tp.lx - e.clientX >= cp) { if (game.move(-1)) AudioSys.move(); tp.lx -= cp; }
+        while (e.clientX - tp.lx >= cp) { if (tryMove(1)) AudioSys.move(); tp.lx += cp; }
+        while (tp.lx - e.clientX >= cp) { if (tryMove(-1)) AudioSys.move(); tp.lx -= cp; }
       } else if (tp.mode === "v") {
         while (e.clientY - tp.ly >= cp) { game.softStep(); tp.ly += cp; }
       }
@@ -930,6 +1205,7 @@
     $("zonehint").textContent = "ZONE BUTTON";
     document.querySelector("#menu .help").textContent =
       "drag to move · tap to rotate · drag down to soft drop · flick down to hard drop";
+    $("opencontrols").classList.add("hidden"); // no keyboard to rebind
   }
 
   // ---------- menu wiring ----------
@@ -994,6 +1270,7 @@
   bindSlider("set-das", "das-val", "das", v => v + " ms");
   bindSlider("set-arr", "arr-val", "arr", v => v === 0 ? "instant" : v + " ms");
   bindSlider("set-vol", "vol-val", "volume", v => v + "%", v => { AudioSys.unlock(); AudioSys.setVolume(v / 100); });
+  bindSlider("set-sdf", "sdf-val", "sdf", v => v > 40 ? "instant" : v + "×", v => { if (game) game.softDropFactor = v; });
   function bindCheck(id, key, onChange) {
     const el = $(id);
     const sync = () => { el.checked = settings[key]; };
@@ -1006,8 +1283,34 @@
     });
   }
   bindCheck("set-ghost", "ghost");
+  bindCheck("set-patterns", "patterns");
+  bindCheck("set-motion", "reduceMotion", applyMotion);
   bindCheck("set-quantize", "quantize", v => AudioSys.setQuantize(v));
   bindCheck("set-vibrate", "vibrate", v => { if (v) buzz(30); });
+  // effects tier chips; picking AUTO again re-measures from the top
+  const fxBtns = $("fxbtns");
+  ["auto", "high", "balanced", "low"].forEach(v => {
+    const b = document.createElement("button");
+    b.className = "chip";
+    b.dataset.fx = v;
+    b.textContent = v.toUpperCase();
+    b.addEventListener("click", () => {
+      settings.fx = v;
+      if (v === "auto") {
+        autoLevel = autoDefault;
+        try { localStorage.removeItem(FX_AUTO_KEY); } catch (e) {}
+      }
+      saveSettings();
+      syncFx();
+    });
+    fxBtns.appendChild(b);
+  });
+  function syncFx() {
+    fxBtns.querySelectorAll(".chip").forEach(c => c.classList.toggle("sel", c.dataset.fx === settings.fx));
+    applyQuality();
+  }
+  settingSyncs.push(syncFx);
+  syncFx();
   // keep the zen speed chips in sync too
   settingSyncs.push(() => {
     speedBtns.querySelectorAll(".chip").forEach(c => c.classList.toggle("sel", +c.textContent === settings.zenSpeed));
@@ -1023,7 +1326,13 @@
   $("setback").addEventListener("click", () => { $("settings").classList.add("hidden"); $("menu").classList.remove("hidden"); });
 
   $("resume").addEventListener("click", () => { state = "playing"; $("pause").classList.add("hidden"); });
-  $("quit").addEventListener("click", () => { mode === "journey" ? showJourneyMap() : toMenu(); });
+  $("quit").addEventListener("click", () => {
+    // a run abandoned from the pause menu still counts toward lifetime stats
+    if (game && !game.over && state === "paused") {
+      LifetimeStats.record(mode, game, elapsed, { finished: false, timed: TIMED_MODES.has(mode) });
+    }
+    mode === "journey" ? showJourneyMap() : toMenu();
+  });
   $("retry").addEventListener("click", () => startGame(mode, mode === "zen" ? zenTheme : null, jIndex));
   $("tomenu").addEventListener("click", toMenu);
   $("tojmap").addEventListener("click", showJourneyMap);
@@ -1035,8 +1344,132 @@
     startGame("journey", null, done ? 0 : JourneyProgress.nextIndex());
   });
 
+  // ---------- sub-screens off the main menu ----------
+  function openScreen(id) { $("menu").classList.add("hidden"); $(id).classList.remove("hidden"); }
+  function closeScreen(id) { $(id).classList.add("hidden"); $("menu").classList.remove("hidden"); refreshHiscores(); }
+
+  // effect modes: one card per mode with its record
+  function renderEffectModes() {
+    const s = store.scores;
+    const list = $("effectlist");
+    list.innerHTML = "";
+    for (const id of ["ultra", "purify", "mystery", "daily"]) {
+      const def = EFFECT_MODES[id];
+      let meta;
+      if (id === "daily") {
+        const d = dailyInfo();
+        const r = DailyRecord.summary(d.key);
+        meta = `${d.key} · ${d.theme.name} · ${DAILY_TWISTS[d.twist].name}`
+          + (r.today != null ? ` · TODAY ${r.today.toLocaleString()}` : " · NOT PLAYED YET")
+          + (r.streak > 1 ? ` · ${r.streak} DAY STREAK` : "");
+      } else {
+        meta = s[id] ? `BEST ${TIMED_MODES.has(id) ? fmtTime(s[id]) : s[id].toLocaleString()}` : "NO RECORD YET";
+      }
+      const b = document.createElement("button");
+      b.className = "mbtn";
+      b.innerHTML = `<span class="mbtn-name">${def.name}</span><span class="mbtn-desc">${def.desc}</span>`
+        + `<span class="mbtn-meta">${meta}</span>`;
+      b.addEventListener("click", () => { AudioSys.unlock(); $("effectmodes").classList.add("hidden"); startGame(id); });
+      list.appendChild(b);
+    }
+  }
+  $("openeffect").addEventListener("click", () => { renderEffectModes(); openScreen("effectmodes"); });
+  $("effectback").addEventListener("click", () => closeScreen("effectmodes"));
+
+  // lifetime stats
+  const MODE_NAMES = { journey: "JOURNEY", classic: "CLASSIC", sprint: "SPRINT", zen: "ZEN", ultra: "ULTRA", purify: "PURIFY", mystery: "MYSTERY", daily: "DAILY" };
+  function renderStats() {
+    const d = LifetimeStats.data;
+    const hrs = d.time / 3600;
+    const totals = [
+      ["GAMES", d.games], ["TIME PLAYED", hrs >= 1 ? `${hrs.toFixed(1)} h` : `${Math.round(d.time / 60)} min`],
+      ["LINES", d.lines], ["PIECES", d.pieces],
+      ["TETRISES", d.tetris], ["T-SPINS", d.tspin],
+      ["PERFECT CLEARS", d.perfect], ["ZONES", d.zones],
+      ["BEST ZONE", d.bestZone + " lines"], ["MAX COMBO", d.maxCombo],
+      ["TOTAL SCORE", d.score], ["SINCE", new Date(d.since).toLocaleDateString()],
+    ];
+    $("stats-totals").innerHTML = totals.map(([k, v]) =>
+      `<div class="stat-cell"><b>${typeof v === "number" ? v.toLocaleString() : v}</b><span class="dim">${k}</span></div>`).join("");
+    const rows = Object.keys(MODE_NAMES).filter(m => d.modes[m]).map(m => {
+      const r = d.modes[m];
+      const timed = TIMED_MODES.has(m);
+      const best = timed ? (r.bestTime != null ? fmtTime(r.bestTime) : "—") : r.best.toLocaleString();
+      const last = r.last.map(x => x.dnf ? "DNF" : x.t != null ? fmtTime(x.t) : x.s.toLocaleString()).join(" · ");
+      return `<tr><td>${MODE_NAMES[m]}</td><td>${r.games}</td><td>${best}</td><td class="dim">${last}</td></tr>`;
+    });
+    $("stats-modes").innerHTML = rows.length
+      ? `<table class="modetable"><tr><th>MODE</th><th>GAMES</th><th>BEST</th><th>LAST 5</th></tr>${rows.join("")}</table>`
+      : `<p class="dim">play a few runs and they'll show up here</p>`;
+  }
+  $("openstats").addEventListener("click", () => { renderStats(); openScreen("stats"); });
+  $("statsback").addEventListener("click", () => closeScreen("stats"));
+  $("statsreset").addEventListener("click", e => {
+    // two clicks to confirm, so a stray tap can't wipe everything
+    if (e.currentTarget.dataset.armed) { LifetimeStats.reset(); renderStats(); delete e.currentTarget.dataset.armed; e.currentTarget.textContent = "RESET STATS"; return; }
+    e.currentTarget.dataset.armed = "1";
+    e.currentTarget.textContent = "CLICK AGAIN TO RESET";
+  });
+
+  // key bindings
+  let rebinding = null; // { action, slot } while waiting for a key
+  function renderKeys() {
+    const list = $("keylist");
+    list.innerHTML = "";
+    for (const a of ACTIONS) {
+      const row = document.createElement("div");
+      row.className = "keyrow";
+      row.innerHTML = `<span>${a.label}</span>`;
+      for (let slot = 0; slot < 2; slot++) {
+        const b = document.createElement("button");
+        const listening = rebinding && rebinding.action === a.id && rebinding.slot === slot;
+        b.className = "chip keychip" + (listening ? " sel" : "");
+        b.textContent = listening ? "PRESS A KEY" : keyLabel(keyBinds[a.id][slot]);
+        b.addEventListener("click", () => { rebinding = { action: a.id, slot }; renderKeys(); });
+        row.appendChild(b);
+      }
+      list.appendChild(row);
+    }
+    refreshHelp();
+  }
+  window.addEventListener("keydown", e => {
+    if (!rebinding) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const { action, slot } = rebinding;
+    rebinding = null;
+    if (e.key === "Escape") { renderKeys(); return; }
+    if (e.key === "Delete" || e.key === "Backspace") {
+      keyBinds[action].splice(slot, 1);
+    } else {
+      Controls.bind(keyBinds, action, slot, e.key);
+    }
+    Controls.save(keyBinds);
+    keyLookup = Controls.lookup(keyBinds);
+    renderKeys();
+  }, true);
+  $("opencontrols").addEventListener("click", () => { renderKeys(); openScreen("controls"); });
+  $("controlsback").addEventListener("click", () => { rebinding = null; closeScreen("controls"); });
+  $("keysreset").addEventListener("click", () => {
+    keyBinds = Controls.defaults();
+    Controls.save(keyBinds);
+    keyLookup = Controls.lookup(keyBinds);
+    renderKeys();
+  });
+
+  // the menu's help line always shows the player's own keys
+  function refreshHelp() {
+    if (isTouch) return;
+    const k = id => keyBinds[id].map(keyLabel).join(" ") || "—";
+    document.querySelector("#menu .help").textContent =
+      `${k("left")} / ${k("right")} move · ${k("soft")} soft drop · ${k("hard")} hard drop · `
+      + `${k("ccw")} / ${k("cw")} rotate · ${k("hold")} hold · ${k("zone")} zone · ${k("pause")} pause`;
+  }
+
   // menu background: idle drift on the first theme
   Background.setTheme(THEMES[Math.floor(Math.random() * THEMES.length)]);
   fitLayout(); // establishes body.portrait before any menu is drawn
+  applyMotion();
+  refreshHelp();
   refreshHiscores();
 })();
