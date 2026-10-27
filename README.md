@@ -103,15 +103,39 @@ Guideline-style engine: SRS rotation with wall kicks, 7-bag randomizer, ghost pi
 
 ## Structure
 
-- `js/engine.js` — pure game logic (no DOM), unit-testable
-- `js/journey.js` — journey node definitions, map layout, progress/stars store
-- `js/modes.js` — effect mode definitions, mystery events, daily challenge seeding and records
+The game is plain scripts loaded in order from `index.html` — no modules and no build step, so it runs straight from disk over `file://`. Top-level declarations are shared between scripts, so each file owns one concern:
+
+**Game data and logic (no DOM — unit-tested in Node)**
+- `js/themes.js` — map definitions: palette, particles and music
+- `js/journey.js` — journey stages, map layout, progress/stars store
 - `js/controls.js` — rebindable key actions and their storage
 - `js/stats.js` — lifetime stats store
-- `js/fx.js` — background particle systems + board particle FX
-- `js/audio.js` — procedural WebAudio synth
-- `js/themes.js` — map definitions
-- `js/main.js` — game loop, input, rendering, UI, modes
+- `js/engine.js` — the Tetris engine: SRS, 7-bag (optionally seeded), scoring, zone, garbage
+- `js/modes.js` — effect mode definitions, mystery events, daily challenge seeding and records
+
+**Presentation**
+- `js/audio.js` — procedural WebAudio synth and beat clock
+- `js/fx.js` — background particle worlds and board particle FX
+
+**Game shell** (split out of what used to be one big `main.js`)
+- `js/app.js` — DOM handles, board geometry, the run's state, settings, shared helpers
+- `js/render.js` — drawing the board, pieces, previews and HUD
+- `js/flow.js` — a run from start to game over: engine events, mode rules, effect-mode runtime
+- `js/input.js` — keyboard (rebindable, DAS/ARR) and touch gestures
+- `js/quality.js` — effects tiers and the AUTO frame-time watchdog
+- `js/screens.js` — journey map, menus, settings, effect modes, stats and controls screens
+- `js/main.js` — frame loop, audio unlock, responsive layout, boot
+
+## Tests
+
+```
+npm install
+npm test            # both suites
+npm run test:unit   # engine, modes, journey, controls, stats — Node only, ~1s
+npm run test:e2e    # the real game in headless Chromium via Playwright, ~30s
+```
+
+Unit tests load the DOM-free scripts into a Node `vm` sandbox (`tests/load.js`). Browser tests open `index.html` from disk exactly as a player would, and fail on any page error. GitHub Actions runs both on every push to `main` and every pull request.
 
 ### Rendering notes
 
