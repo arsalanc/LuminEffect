@@ -1,6 +1,6 @@
 # LUMINEFFECT
 
-A browser-based tribute to *Tetris Effect* — pure HTML/CSS/JS, no build step, no dependencies.
+A browser-based tribute to *Tetris Effect* — pure HTML/CSS/JS, no build step, no runtime dependencies.
 
 ## Play
 
@@ -10,7 +10,7 @@ Open `index.html` in any modern browser. That's it.
 
 ## Modes
 
-- **JOURNEY** — a constellation of 13 short stages across the six maps, played from a node map. Each stage is 1–2 minutes and takes ~3 to clear, so you can play in bursts; progress and stars persist between sessions. The stage order is an emotional arc — gentle opening, long build, climax at EVENT HORIZON, then a deliberate comedown.
+- **JOURNEY** — a constellation of 15 short stages across all eight maps, played from a node map. Each stage is 1–2 minutes and takes ~3 to clear, so you can play in bursts; progress and stars persist between sessions. The stage order is an emotional arc — gentle opening, long build, climax at EVENT HORIZON, then a deliberate comedown.
 - **CLASSIC** — marathon. Level up every 10 lines, win at level 15 (150 lines).
 - **SPRINT** — 40 lines, race the clock. Random map each run; your best time is saved.
 - **ZEN** — pick any map *and speed*, no game over, no pressure. Topping out just gently wipes the board.
@@ -21,6 +21,11 @@ Open `index.html` in any modern browser. That's it.
 - **PURIFY** — dark garbage rows (marked with an X) rise from below, faster as you go. Clear lines through them to purify 60 dark blocks; your best time is saved.
 - **MYSTERY** — every 16 seconds of play something changes. Curses: FOG (only a lantern around your piece shows the stack), UPSIDE DOWN, MIRROR (left is right), BLINDFOLD (next queue hidden), RUSH (3× gravity), SURGE (two garbage rows). Gifts: I-PIECE RAIN, CLEANSE (bottom rows vanish), CHARGE (full zone meter). And WORLD SHIFT jumps to another map. Events pause while you're in the Zone.
 - **DAILY** — a two-minute score attack that's the same for everyone on a given day: the map, the twist (pure, rising garbage, or mystery events), the piece order and the events are all seeded from the date. Tracks today's best, your all-time daily best and your streak of consecutive days.
+- **THEATER** — sit back: the AI plays through every map in turn, each one building from calm to climax before the next takes over, firing the Zone whenever the meter fills. Your keys do nothing except pause. Leave the main menu idle for 30 seconds and the theater starts on its own as an attract loop; any key or tap brings the menu back.
+
+## The AI player
+
+`js/bot.js` scores every position the current piece can reach (each rotation, slid to each column, dropped straight down) using Pierre Dellacherie's six-feature evaluation with the weights tuned by El-Tetris, and checks whether swapping in the hold piece would do better. In its plain "safe" style it plays thousands of pieces without topping out but clears mostly singles; the "showy" style the theater uses keeps the right-hand column open while the stack is low and saves up for tetrises. `js/autoplay.js` turns each plan into visible moves at a human-ish pace. The bot also powers tests: it has to survive 500 pieces on several seeds and dig through rising garbage.
 
 ## Settings
 
@@ -31,10 +36,6 @@ DAS (auto-repeat delay), ARR (auto-repeat rate, 0 = instant), volume, effects qu
 - **BLOCK PATTERNS** — every piece type gets its own glyph (bar, square, triangle, slashes, dot, ring), so pieces can be told apart without relying on color.
 - **REDUCE MOTION & FLASHING** — no board shake, no zone flash, softer row flashes, no shockwave rings or world flinch, a gentler beat pulse, a steady (not throbbing) danger glow, and fade-only text animations. On by default when the OS asks for reduced motion.
 
-## Stats
-
-The STATS screen keeps lifetime totals (games, time played, lines, pieces, tetrises, T-spins, perfect clears, zones, best zone, max combo, total score) and, per mode, games played, best result and the last five results. Runs quit from the pause menu count too.
-
 ### Effects quality
 
 - **HIGH** — everything, including frosted-glass blur on the board and panels.
@@ -42,17 +43,23 @@ The STATS screen keeps lifetime totals (games, time played, lines, pieces, tetri
 - **LOW** — also renders the background at half resolution with fewer particles and sparks.
 - **AUTO** (default) — starts at HIGH on desktop and BALANCED on touch devices, steps down a tier after ~2 seconds of sub-45fps play, and remembers where it settled. Picking AUTO again re-measures from the top.
 
+## Stats
+
+The STATS screen keeps lifetime totals (games, time played, lines, pieces, tetrises, T-spins, perfect clears, zones, best zone, max combo, total score) and, per mode, games played, best result and the last five results. Runs quit from the pause menu count too.
+
 ## Maps
 
-Six audiovisual worlds, each with its own palette, background particle system, and musical scale for the procedural soundtrack:
+Eight audiovisual worlds, each with its own palette, background particle system, reaction to big moments, and musical scale, chord progression and melody for the procedural soundtrack:
 
 | Map | Mood |
 |---|---|
 | THE DEEP | abyssal bubbles, minor pentatonic |
+| PETAL WIND | tumbling cherry petals, miyako-bushi scale with a koto-like pluck |
 | GOLDEN DUNES | drifting sand, warm major |
 | AURORA FIELDS | northern-light ribbons |
 | FIREFLY GROVE | blinking fireflies in a night forest, lydian pentatonic |
 | NEON CITY | synth rain on glass |
+| STORMFRONT | wind-driven rain and lightning, dark phrygian pentatonic over a taiko pulse |
 | EVENT HORIZON | starfield at the edge |
 
 ## The Zone
@@ -99,7 +106,7 @@ Guideline-style engine: SRS rotation with wall kicks, 7-bag randomizer, ghost pi
 - **Danger** — when the stack climbs past about 11 rows a heartbeat creeps in under the music (every beat near the top), the pad drains away, and the edges of the world and the rim of the well throb red with it.
 - **Haptics** — on phones, hard drops, clears, the zone and game over vibrate (where the browser supports it).
 - **The Zone sounds underwater** — the music sinks behind a lowpass and the room swells. Banking lines slowly lifts the filter, and cashing out snaps everything back into focus with a sub-bass impact. Your own sounds stay crisp the whole time.
-- **The world reacts, in its own way** — bubbles swirl into a vortex in THE DEEP, sand gusts outward in GOLDEN DUNES, auroras flare, FIREFLY GROVE's fireflies light up in a wave and scatter, NEON CITY's rain bends away from the board, and EVENT HORIZON's stars stretch into hyperspace streaks. Line clears also fling sparks (bubbles, grains or light, depending on the map) in the cleared rows' colors out of the well and past the camera, with a shockwave ring and the background field flinching outward. Sparks freeze in mid-air during the Zone and fly when it ends. Hard drops leave light streaks, freshly locked pieces glint, and background particles blend additively under a soft vignette.
+- **The world reacts, in its own way** — bubbles swirl into a vortex in THE DEEP, petals spiral upward in PETAL WIND, sand gusts outward in GOLDEN DUNES, auroras flare, FIREFLY GROVE's fireflies light up in a wave and scatter, NEON CITY's rain bends away from the board, lightning strikes down to the clear in STORMFRONT (skipped with reduced motion), and EVENT HORIZON's stars stretch into hyperspace streaks. Line clears also fling sparks (bubbles, grains or light, depending on the map) in the cleared rows' colors out of the well and past the camera, with a shockwave ring and the background field flinching outward. Sparks freeze in mid-air during the Zone and fly when it ends. Hard drops leave light streaks, freshly locked pieces glint, and background particles blend additively under a soft vignette.
 
 ## Structure
 
@@ -112,6 +119,7 @@ The game is plain scripts loaded in order from `index.html` — no modules and n
 - `js/stats.js` — lifetime stats store
 - `js/engine.js` — the Tetris engine: SRS, 7-bag (optionally seeded), scoring, zone, garbage
 - `js/modes.js` — effect mode definitions, mystery events, daily challenge seeding and records
+- `js/bot.js` — the AI player's placement search and evaluation
 
 **Presentation**
 - `js/audio.js` — procedural WebAudio synth and beat clock
@@ -122,20 +130,10 @@ The game is plain scripts loaded in order from `index.html` — no modules and n
 - `js/render.js` — drawing the board, pieces, previews and HUD
 - `js/flow.js` — a run from start to game over: engine events, mode rules, effect-mode runtime
 - `js/input.js` — keyboard (rebindable, DAS/ARR) and touch gestures
+- `js/autoplay.js` — plays the bot's plans as visible moves (theater) and runs the menu's attract loop
 - `js/quality.js` — effects tiers and the AUTO frame-time watchdog
 - `js/screens.js` — journey map, menus, settings, effect modes, stats and controls screens
 - `js/main.js` — frame loop, audio unlock, responsive layout, boot
-
-## Tests
-
-```
-npm install
-npm test            # both suites
-npm run test:unit   # engine, modes, journey, controls, stats — Node only, ~1s
-npm run test:e2e    # the real game in headless Chromium via Playwright, ~30s
-```
-
-Unit tests load the DOM-free scripts into a Node `vm` sandbox (`tests/load.js`). Browser tests open `index.html` from disk exactly as a player would, and fail on any page error. GitHub Actions runs both on every push to `main` and every pull request.
 
 ### Rendering notes
 
@@ -143,3 +141,14 @@ Unit tests load the DOM-free scripts into a Node `vm` sandbox (`tests/load.js`).
 - The background sky, vignette, danger glow, beat halo and danger rim are CSS layers whose *opacity* is driven per frame (compositor-only); the background canvas itself is transparent and only draws particles, batched into a few paths per frame.
 - HUD text and styles are written only when they change; hold/next previews redraw only when the queue changes.
 - Noise buffers are generated once and reused; reverb impulses are built in small chunks across timer ticks and cached per room size.
+
+## Tests
+
+```
+npm install
+npm test            # both suites
+npm run test:unit   # engine, bot, modes, journey, controls, stats — Node only, a few seconds
+npm run test:e2e    # the real game in headless Chromium via Playwright, about a minute
+```
+
+Unit tests load the DOM-free scripts into a Node `vm` sandbox (`tests/load.js`). Browser tests open `index.html` from disk exactly as a player would, and fail on any page error. GitHub Actions runs both on every push to `main` and every pull request.
