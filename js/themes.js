@@ -30,6 +30,27 @@ const THEMES = [
     },
   },
   {
+    id: "sakura",
+    name: "PETAL WIND",
+    sub: "the wind carries everything",
+    accent: "#ffb7d5",
+    bgTop: "#120614", bgBottom: "#3d1530",
+    particles: "petals",
+    pieceColors: ["#ffd1e8", "#fff0b8", "#e3b8ff", "#c8f5c0", "#ff9fb8", "#b8c8ff", "#ffcfa0"],
+    audio: {
+      // miyako-bushi: the bittersweet Japanese scale of koto and shamisen
+      root: 138.59, scale: [0, 1, 5, 7, 8], wave: "triangle", padCutoff: 900,
+      bpm: 74, kickEvery: 4, hat: false,
+      arp: [0, 2, 3, null, 4, 3, 2, null], // a plucked, koto-like figure
+      prog: [0, -1, 2, 0], bass: [1, null, null, null, 1, null, null, null], bassLen: 3,
+      reverb: 4.5, wet: 0.48, delay: 0.4, pump: 0.2,
+      melody: { vowel: "a", phrases: [
+        [[0, 5, 3], [3, 6, 1], [4, 7, 4], [8, 6, 2], [10, 5, 6]],
+        [[0, 8, 2], [2, 7, 2], [4, 5, 4], [8, 6, 3], [11, 5, 5]],
+      ] },
+    },
+  },
+  {
     id: "dunes",
     name: "GOLDEN DUNES",
     sub: "wind over sand",
@@ -107,6 +128,27 @@ const THEMES = [
       melody: { vowel: "e", level: 0.65, phrases: [
         [[0, 5, 1], [1, 5, 1], [3, 7, 2], [6, 6, 1], [7, 5, 3], [10, 4, 1], [11, 5, 1], [13, 3, 3]],
         [[0, 7, 2], [3, 8, 1], [4, 7, 2], [6, 5, 2], [8, 6, 3], [11, 5, 1], [12, 4, 4]],
+      ] },
+    },
+  },
+  {
+    id: "storm",
+    name: "STORMFRONT",
+    sub: "the sky breaks open",
+    accent: "#9fc2ff",
+    bgTop: "#05070d", bgBottom: "#1b2433",
+    particles: "storm",
+    pieceColors: ["#8fe3ff", "#ffe68a", "#c6a8ff", "#8affc1", "#ff8fa3", "#7f9cff", "#ffbf80"],
+    audio: {
+      // a dark, phrygian-flavoured pentatonic over a taiko-like double kick
+      root: 92.5, scale: [0, 1, 5, 7, 10], wave: "sawtooth", padCutoff: 500,
+      bpm: 92, kickEvery: 2, hat: true,
+      arp: [0, null, 0, 3, null, 2, 1, null],
+      prog: [0, -1, 1, 0], bass: [1, null, 2, null, 1, 1, 2, null], bassLen: 1,
+      reverb: 3, wet: 0.38, delay: 0.3, pump: 0.45,
+      melody: { vowel: "o", level: 0.9, phrases: [
+        [[0, 5, 2], [2, 4, 1], [3, 5, 1], [4, 7, 4], [8, 6, 2], [10, 5, 2], [12, 4, 4]],
+        [[0, 8, 3], [3, 7, 1], [4, 6, 2], [6, 5, 2], [8, 4, 6], [14, 5, 2]],
       ] },
     },
   },
